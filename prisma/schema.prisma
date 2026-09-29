@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  passwordHash String
+  name String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  subscriptions Subscription[]
+  context MarketingContext?
+  executions WorkerExecution[]
+  approvals Approval[]
+  workflows CustomWorkflow[]
+}
+
+model Package {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  priceVnd Int?
+  description String @db.Text
+  capabilities Json
+  subscriptions Subscription[]
+  createdAt DateTime @default(now())
+}
+
+model Subscription {
+  id String @id @default(cuid())
+  userId String
+  packageId String
+  status SubscriptionStatus @default(ACTIVE)
+  startDate DateTime @default(now())
+  endDate DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  package Package @relation(fields: [packageId], references: [id])
+  @@index([userId, status, endDate])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+}
+
+model MarketingContext {
+  id String @id @default(cuid())
+  userId String @unique
+  businessName String
+  brandDescription String? @db.Text
+  productService String? @db.Text
+  productPrice String?
+  targetMarket String? @db.Text
+  targetCustomer String? @db.Text
+  brandVoice String?
+  brandTone String?
+  businessGoals String? @db.Text
+  marketingGoals String? @db.Text
+  uniqueSellingPoints String? @db.Text
+  competitors Json?
+  location String?
+  industry String?
+  website String?
+  socialMedia Json?
+  additionalNotes String? @db.Text
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WorkerExecution {
+  id String @id @default(cuid())
+  userId String
+  workerSlug String
+  input Json
+  status ExecutionStatus @default(PENDING)
+  provider String?
+  model String?
+  durationMs Int?
+  errorMessage String? @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  worker Worker @relation(fields: [workerSlug], references: [slug])
+  approvals Approval[]
+  result WorkerResult?
+  @@index([userId, createdAt])
+  @@index([workerSlug, status])
+}
+
+enum ExecutionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+model WorkerResult {
+  id String @id @default(cuid())
+  executionId String @unique
+  output Json
+  createdAt DateTime @default(now())
+  execution WorkerExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+}
+
+model CustomWorkflow {
+  id String @id @default(cuid())
+  userId String
+  name String
+  description String? @db.Text
+  definition Json
+  enabled Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Worker {
+  id String @id @default(cuid())
+  slug String @unique
+  name String
+  category String
+  requiredPackage String
+  description String @db.Text
+  outputSchema Json
+  executions WorkerExecution[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Approval {
+  id String @id @default(cuid())
+  userId String
+  executionId String
+  status ApprovalStatus @default(PENDING)
+  decisionNote String? @db.Text
+  createdAt DateTime @default(now())
+  reviewedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  execution WorkerExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  @@index([userId, status])
+}
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+
+
