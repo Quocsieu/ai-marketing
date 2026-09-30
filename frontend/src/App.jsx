@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, Link, useNavigate, useParams } from "react-router-dom";
 import {
+  Bot,
   LayoutDashboard,
   Users,
   BriefcaseBusiness,
@@ -14,6 +15,7 @@ import {
   Save,
   Play,
 } from "lucide-react";
+import AgentPage from "./pages/AgentPage";
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 async function request(path, options = {}) {
   const token = localStorage.getItem("token");
@@ -69,6 +71,11 @@ function App() {
             label="Marketing context"
           />
           <Nav
+            to="/agent"
+            icon={<Bot size={18} />}
+            label="AI Marketing Agent"
+          />
+          <Nav
             to="/workers"
             icon={<BriefcaseBusiness size={18} />}
             label="AI workers"
@@ -121,6 +128,7 @@ function App() {
         {error && <div className="error">{error}</div>}
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/agent" element={<AgentPage request={request} />} />
           <Route path="/workers" element={<Workers />} />
           <Route path="/workers/:slug" element={<Worker />} />
           <Route path="/context" element={<Context />} />

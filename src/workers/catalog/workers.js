@@ -127,7 +127,18 @@ module.exports = records.map(
       required: ["summary", "recommendations", "assumptions"],
       properties: {
         summary: { type: "string" },
-        recommendations: { type: "array", items: { type: "object" } },
+          recommendations: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["title", "detail", "priority"],
+              properties: {
+                title: { type: "string" },
+                detail: { type: "string" },
+                priority: { type: "string", enum: ["high", "medium", "low"] },
+              },
+            },
+          },
         assumptions: { type: "array", items: { type: "string" } },
       },
     },

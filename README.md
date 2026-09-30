@@ -1,26 +1,44 @@
 # AI Marketing Service
 
-Extensible subscription based marketing workspace. Version 1 provides a generic worker engine with a schema validated mock AI provider, account and package management, persisted marketing context and execution history, and a React dashboard. Real advertising execution, payments, and third party data connections are intentionally absent.
+Subscription-based marketing workspace with a reusable Worker Engine and an AI Marketing Agent. Agent runs take structured product and campaign inputs, create a reviewable plan from package-authorized workers, execute the approved plan, evaluate each result, and save a final structured marketing brief.
 
 ## Architecture
 
-`REST API ? Worker Engine ? Worker contract ? shared prompt builder ? AI Service ? Provider interface ? Mock Provider/model ? Zod validator ? Worker result ? MySQL/Prisma`.
+### V1 manual worker flow
 
-Workers are catalog definitions (`src/workers/catalog/workers.js`) that share an input contract, output validator, context formatter and execution service. Package levels are capabilities enforced by the backend at execute time. `AI_PROVIDER` selects an implementation; the Mock provider can be replaced without changing workers. Add a provider under `src/services/providers/` implementing `generate({prompt, model})` and register it in the AI service.
+`User → REST API → Worker Engine → Worker prompt → AI Service → provider → model → validator → WorkerExecution/WorkerResult`
 
-## Structure
+Manual worker API and output format remain available. Manual and Agent modes now share `src/services/workers/executeWorker.js`, including package authorization, context loading, provider calls, and result persistence.
 
-- `src/routes`, `src/middleware`, `src/config`: REST and application foundation
-- `src/workers`: worker catalog, schema, context prompt construction
-- `src/services/ai`, `src/services/providers`: AI abstraction
-- `src/integrations`: explicit unconfigured interfaces; no fake external success
-- `src/workflows`: custom workflow definition storage foundation
-- `prisma`: MySQL schema and package seed
-- `frontend/src`: React dashboard and reusable worker/result views
+### V2 Agent flow
 
-## Requirements and setup
+`Product + Marketing Goal + Selected Workers → Planner → reviewed plan → Executor → shared Worker Engine → AI Service → provider/model → schema validator → Evaluator → retry/continue/finish → final brief`
 
-Requires a current Node.js release and MySQL. Copy `backend .env.example` to `.env` in this project and set `DATABASE_URL` and a long random `JWT_SECRET`. `AI_PROVIDER=mock` needs no key.
+The Planner and Evaluator use the same provider abstraction as Workers. The Executor stores an AgentRun and AgentSteps and links every Agent WorkerExecution to its step. Prior outputs are summarized and bounded before being passed to later Workers. Plans contain an order, reason, and dependencies; the API verifies that the plan contains only the selected workers and that dependencies point to earlier steps.
+
+The Agent allows up to 8 selected steps and one retry per step. Runs are queued in-process and can be polled through the run detail endpoint. A process restart during a run may leave it in `RUNNING`; a durable job queue is outside V2 scope.
+
+### Providers and structured output
+
+`AI Service → Provider Interface → MockProvider | GeminiProvider → configured model → JSON/schema validation`
+
+`AI_PROVIDER=mock` uses deterministic mock outputs. `AI_PROVIDER=gemini` uses Google’s `@google/genai` SDK and server-side `GEMINI_API_KEY`. Gemini receives JSON Schema output constraints; AI Service parses and validates the response with Zod. Providers never leak SDK response formats into Workers or Agent modules. There is no silent provider fallback.
+
+## Technology and structure
+
+- Backend: Node.js, Express, Prisma, MySQL, Zod, JWT, bcrypt
+- Frontend: React, Vite, React Router, Tailwind/PostCSS, reusable SaaS dashboard components
+- `src/agents`: product/goal schemas, Planner, Evaluator, Executor, orchestration and run state
+- `src/routes`: auth, packages, marketing context, workers, analytics, approvals, workflows, Agent
+- `src/services/workers/executeWorker.js`: shared and authorized worker execution
+- `src/services/ai`, `src/services/providers`: provider-neutral generation, Mock, Gemini
+- `src/workers/catalog`: the existing M1/M2/M3/M4 worker registry
+- `prisma/schema.prisma`, `prisma/migrations`: database model and additive migrations
+- `frontend/src/pages/AgentPage.jsx`: product/goal form, worker selection, plan review, progress, outputs and history
+
+## Setup
+
+Requires Node.js 22 or later and MySQL. Copy `.env.example` to `.env`; set a database URL and a long random JWT secret. The mock provider does not need an API key.
 
 ```sh
 npm install
@@ -30,7 +48,7 @@ npm run db:seed
 npm run dev
 ```
 
-In another terminal:
+In a second terminal:
 
 ```sh
 cd frontend
@@ -38,39 +56,67 @@ npm install
 npm run dev
 ```
 
-The API defaults to `http://localhost:3000`; Vite defaults to `http://localhost:5173`. Set `FRONTEND_URL` and optionally `frontend/.env` with `VITE_API_URL=http://localhost:3000/api` if these differ. Production backend command: `npm start`; frontend build: `cd frontend && npm run build`.
+The backend defaults to port 3000 and Vite to port 5173. For Gemini, set `AI_PROVIDER=gemini`, `GEMINI_API_KEY`, and `AI_MODEL` in the backend `.env`. Choose a Gemini model that supports structured JSON output. The model name is always configuration-driven.
 
-## Environment
+Other environment variables: `PORT`, `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `AI_PROVIDER`, `AI_MODEL`, `GEMINI_API_KEY`, `FRONTEND_URL`, `NODE_ENV`. `.env` is gitignored; `.env.example` contains placeholders only.
 
-`PORT`, `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `AI_PROVIDER`, `AI_MODEL`, `FRONTEND_URL`, `NODE_ENV`. `.env` is ignored by Git.
+## API
 
-## API overview
+All Agent and existing private APIs require `Authorization: Bearer <token>`.
 
-- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
-- `GET /api/packages`, `GET /api/packages/subscription`, `POST /api/packages/subscription` (development activation only; no payment)
-- `GET|PUT /api/marketing-context`
-- `GET /api/workers`, `POST /api/workers/:workerSlug/execute`, `GET /api/workers/executions`
-- `GET /api/analytics`, `GET|POST /api/workflows`, `GET|POST /api/approvals`, `PATCH /api/approvals/:id`
-- `GET /api/health`
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/api/auth/register` | Register |
+| POST | `/api/auth/login` | Login |
+| GET | `/api/auth/me` | Current user |
+| GET | `/api/packages` | Package catalog |
+| GET/PUT | `/api/marketing-context` | Read/update business context |
+| GET | `/api/workers` | Worker registry and package availability |
+| POST | `/api/workers/:workerSlug/execute` | Manual worker execution |
+| GET | `/api/workers/executions` | Manual and Agent worker history |
+| GET | `/api/analytics` | Internal execution analytics |
+| POST | `/api/agent/plan` | Validate inputs, authorize workers, persist a proposed plan |
+| POST | `/api/agent/run` | Approve and start an awaiting plan (`202` response) |
+| GET | `/api/agent/runs` | User-owned Agent history |
+| GET | `/api/agent/runs/:id` | User-owned run, step status and Worker outputs |
+| GET/POST | `/api/approvals` | Existing approval foundation |
+| PATCH | `/api/approvals/:id` | Decide a pending approval |
+| GET/POST | `/api/workflows` | Custom workflow definition foundation |
 
-Private routes use bearer JWT. Responses follow `{success,data}` or `{success:false,message,code}`. Registering seeds an M1 subscription when packages have been seeded.
+Create plan input shape:
 
-## Packages and workers
+```json
+{
+  "product": { "name": "Gundam RX-78-2", "description": "Entry-level model kit", "price": "390000 VND" },
+  "marketingGoal": { "objective": "Increase sales in October", "budget": "10000000 VND", "targetPlatforms": ["Facebook"] },
+  "selectedWorkers": ["customer-persona", "competitor-research", "usp-offer", "ad-copy-headline"]
+}
+```
 
-M1: Marketing Planner, Customer Persona, Competitor Research, USP & Offer, Facebook Campaign, Ad Copy & Headline, Content Planner, SEO Audit & CEO Summary, Creative Brief, Marketing Context Setup. M2 adds 15 growth capabilities; M3 adds 19 advanced capabilities; M4 provides enterprise capability labels and workflow foundations. Full catalog is in `src/workers/catalog/workers.js`; package entitlements are seeded as cumulative capability lists. Worker discovery communicates availability and execution independently checks package level.
+Plan creation only returns `AWAITING_APPROVAL`; the separate run request starts execution. Package entitlements, worker registry membership, selection membership, and run ownership are checked on the backend.
 
-New worker: add a catalog entry with slug, purpose, tier, input schema, output shape, prompt instructions, then ensure output meets the shared Zod schema or extend the registry to select a worker-specific schema. It then automatically appears in the catalog and generic UI. The current catalog uses the same flexible recommendation output shape for all workers; specialist schemas and tailored input controls can be added per capability.
+## Adding capabilities
 
-## Frontend
+### Worker
 
-Login/registration, overview, marketing context form, filterable worker catalog, reusable worker execution form and structured result view, execution history, internal usage analytics, and subscription settings. Analytics report only stored worker execution counts and durations; no ad performance is fabricated.
+Add metadata to the existing `src/workers/catalog/workers.js` registry. Keep the shared worker contract, add focused instructions and schemas, and use `executeWorker` for manual and Agent runs. The generic registry currently uses a common recommendation output shape; specialized Worker contracts can be introduced incrementally.
 
-## Extension points and limitations
+### Provider
 
-- AI providers: provider interface under `src/services/providers`; mock only today.
-- Integrations: adapter placeholders for Facebook/Google/TikTok, CRM, ERP, CDP, and website explicitly return `NOT_CONFIGURED`.
-- Workflows: user-owned JSON workflow definitions can be stored; no scheduler, approval execution, or automation engine yet.
-- Packages: update seed capability lists and pricing.
-- Payments, real ad APIs/spend, external analytics, enterprise SSO, private AI, voicebot and real-time data sync are not implemented.
-- The app needs configured MySQL and Prisma migration/seed before authenticated features work. Use HTTPS, managed secrets, operational monitoring, backups, and deployment hardening before production.
+Add an implementation in `src/services/providers` that accepts normalized prompt/model/schema input and returns `{ model, output }`. Register it in `src/services/ai/aiService.js`. Keep keys in server environment configuration and validate output through the supplied Zod schema.
 
+### Packages and integrations
+
+Update package capability seed data for new commercial access. Add future external integration behavior behind `src/integrations`; current Facebook, Google Ads, TikTok, CRM, ERP, CDP, and website adapters remain unconfigured. V3 can connect approved marketing output to those adapters.
+
+## V1 capabilities preserved
+
+JWT authentication, password hashing, package/subscription checks, Marketing Context, the M1–M4 Worker catalog, manual Worker execution, provider abstraction, Mock Provider, structured output validation, persisted WorkerExecution/WorkerResult, history, analytics, approvals, custom workflow definitions, and existing REST endpoints remain available.
+
+## Known limits
+
+- Real ad creation, publishing, budget spend, and external ad analytics are not part of V2.
+- Payment, CRM/ERP synchronization, and a production automation scheduler are not implemented.
+- Gemini calls require a valid server-side key and configured model. Provider access was not verified against a live Gemini account.
+- Agent runs use a bounded in-process executor, not a durable queue.
+- Workers currently share generic input/output contracts; richer specialist schemas remain incremental work.

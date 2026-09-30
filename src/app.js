@@ -25,6 +25,7 @@ app.use("/api/workers", require("./routes/workerRoutes"));
 app.use("/api/analytics", require("./routes/analyticsRoutes"));
 app.use("/api/workflows", require("./routes/workflowRoutes"));
 app.use("/api/approvals", require("./routes/approvalRoutes"));
+app.use("/api/agent", require("./routes/agentRoutes"));
 app.use((req, res) =>
   res.status(404).json({ success: false, message: "Route not found" }),
 );

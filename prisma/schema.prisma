@@ -19,6 +19,7 @@ model User {
   executions WorkerExecution[]
   approvals Approval[]
   workflows CustomWorkflow[]
+  agentRuns AgentRun[]
 }
 
 model Package {
@@ -90,8 +91,11 @@ model WorkerExecution {
   updatedAt DateTime @updatedAt
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   worker Worker @relation(fields: [workerSlug], references: [slug])
+  agentStep AgentStep? @relation(fields: [agentStepId], references: [id], onDelete: SetNull)
   approvals Approval[]
   result WorkerResult?
+  agentStepId String?
+  @@index([agentStepId])
   @@index([userId, createdAt])
   @@index([workerSlug, status])
 }
@@ -132,6 +136,7 @@ model Worker {
   description String @db.Text
   outputSchema Json
   executions WorkerExecution[]
+  agentSteps AgentStep[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -152,6 +157,62 @@ enum ApprovalStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum AgentRunStatus {
+  PLANNING
+  AWAITING_APPROVAL
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum AgentStepStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model AgentRun {
+  id String @id @default(cuid())
+  userId String
+  goal Json
+  productInput Json
+  selectedWorkers Json
+  plan Json?
+  status AgentRunStatus @default(PLANNING)
+  finalOutput Json?
+  errorMessage String? @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  steps AgentStep[]
+  @@index([userId, status, createdAt])
+}
+
+model AgentStep {
+  id String @id @default(cuid())
+  agentRunId String
+  workerSlug String
+  stepOrder Int
+  status AgentStepStatus @default(PENDING)
+  input Json
+  output Json?
+  decision Json?
+  reason String @db.Text
+  retryCount Int @default(0)
+  errorMessage String? @db.Text
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  agentRun AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  worker Worker @relation(fields: [workerSlug], references: [slug], onDelete: Restrict)
+  executions WorkerExecution[]
+  @@unique([agentRunId, stepOrder])
+  @@index([agentRunId, status])
 }
 
 
