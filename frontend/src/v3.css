@@ -1,0 +1,20 @@
+/* Readability refinements that preserve the existing color palette. */
+body { font-size: 15px; line-height: 1.55; }
+button, input, textarea, select { font: inherit; }
+label { line-height: 1.5; }
+.muted, small { line-height: 1.5; }
+.agentPage { max-width: 1440px; margin-inline: auto; }
+.agentFields { gap: 15px 18px; }
+.agentWorkerChoice { min-height: 102px; }
+.selectedCount { white-space: nowrap; }
+.passwordControl { position: relative; display: flex; align-items: center; }
+.passwordControl input { width: 100%; padding-right: 44px; }
+.passwordToggle { position: absolute; right: 4px; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.passwordToggle:focus-visible { outline: 2px solid currentColor; }
+@media (max-width: 700px) {
+  .selectedCount { font-size: 13px; }
+  .agentFields { grid-template-columns: 1fr; }
+  .agentFields .span2 { grid-column: auto; }
+  .agentActions { align-items: stretch; flex-direction: column; }
+  .agentActions .primary, .agentActions .agentSecondary { justify-content: center; min-height: 44px; }
+}

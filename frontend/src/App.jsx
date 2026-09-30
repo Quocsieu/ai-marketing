@@ -14,11 +14,13 @@ import {
   LoaderCircle,
   Save,
   Play,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import AgentPage from "./pages/AgentPage";
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 async function request(path, options = {}) {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("accessToken") || localStorage.getItem("token");
   const res = await fetch(API + path, {
     ...options,
     headers: {
@@ -27,28 +29,37 @@ async function request(path, options = {}) {
       ...options.headers,
     },
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.message || "Request failed");
+  const json = await res.json().catch(() => ({}));
+  if (res.status === 401 && token && (path === "/auth/me" || !path.startsWith("/auth/"))) {
+    localStorage.removeItem("accessToken"); localStorage.removeItem("token");
+    window.dispatchEvent(new Event("auth:expired"));
+    throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+  }
+  if (!res.ok) throw new Error(path === "/auth/login" ? "Email hoặc mật khẩu chưa chính xác." : (json.message || "Đã xảy ra lỗi. Vui lòng thử lại."));
   return json.data;
 }
 function App() {
-  const [token, setToken] = useState(localStorage.getItem("token"));
+  const [token, setToken] = useState(localStorage.getItem("accessToken") || localStorage.getItem("token"));
   const [user, setUser] = useState(null);
   const [error, setError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
+  useEffect(() => {
+    const expire = () => { setToken(null); setUser(null); setAuthNotice("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."); };
+    window.addEventListener("auth:expired", expire);
+    return () => window.removeEventListener("auth:expired", expire);
+  }, []);
   useEffect(() => {
     if (token)
       request("/auth/me")
         .then(setUser)
-        .catch(() => {
-          localStorage.removeItem("token");
-          setToken(null);
-        });
+        .catch(() => {});
   }, [token]);
   if (!token)
     return (
       <Auth
+        notice={authNotice}
         onLogin={(t) => {
-          localStorage.setItem("token", t);
+          localStorage.setItem("accessToken", t); localStorage.removeItem("token"); setAuthNotice(""); setUser(null);
           setToken(t);
         }}
       />
@@ -62,13 +73,13 @@ function App() {
           </span>{" "}
           MarketPilot<span className="brandAI">AI</span>
         </div>
-        <div className="workspace">WORKSPACE</div>
+        <div className="workspace">KHÔNG GIAN LÀM VIỆC</div>
         <nav>
-          <Nav to="/" icon={<LayoutDashboard size={18} />} label="Overview" />
+          <Nav to="/" icon={<LayoutDashboard size={18} />} label="Tổng quan" />
           <Nav
             to="/context"
             icon={<Users size={18} />}
-            label="Marketing context"
+            label="Ngữ cảnh marketing"
           />
           <Nav
             to="/agent"
@@ -78,42 +89,42 @@ function App() {
           <Nav
             to="/workers"
             icon={<BriefcaseBusiness size={18} />}
-            label="AI workers"
+            label="Worker AI"
           />
           <Nav
             to="/history"
             icon={<History size={18} />}
-            label="Execution history"
+            label="Lịch sử thực thi"
           />
           <Nav
             to="/analytics"
             icon={<ChartNoAxesCombined size={18} />}
-            label="Analytics"
+            label="Phân tích"
           />
-          <Nav to="/settings" icon={<Settings size={18} />} label="Settings" />
+          <Nav to="/settings" icon={<Settings size={18} />} label="Cài đặt" />
         </nav>
         <div className="sideBottom">
           <div className="planMini">
             <div className="planDot" />
-            M1 Starter <ArrowUpRight size={14} />
+            Gói M1 Starter <ArrowUpRight size={14} />
           </div>
           <button
             className="logout"
             onClick={() => {
-              localStorage.removeItem("token");
+              localStorage.removeItem("accessToken"); localStorage.removeItem("token"); setUser(null);
               setToken(null);
             }}
           >
-            <LogOut size={16} /> Sign out
+            <LogOut size={16} /> Đăng xuất
           </button>
         </div>
       </aside>
       <main className="main">
         <header className="topbar">
           <div>
-            <span className="crumb">Workspace</span>
+            <span className="crumb">Không gian làm việc</span>
             <span className="slash"> / </span>
-            <span>Marketing overview</span>
+            <span>Tổng quan marketing</span>
           </div>
           <div className="profile">
             <div className="avatar">
@@ -121,7 +132,7 @@ function App() {
             </div>
             <div>
               <strong>{user?.name || "Welcome"}</strong>
-              <small>Workspace admin</small>
+              <small>Quản trị không gian làm việc</small>
             </div>
           </div>
         </header>
@@ -129,6 +140,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/agent" element={<AgentPage request={request} />} />
+          <Route path="/agent/runs/:runId" element={<AgentPage request={request} />} />
           <Route path="/workers" element={<Workers />} />
           <Route path="/workers/:slug" element={<Worker />} />
           <Route path="/context" element={<Context />} />
@@ -148,10 +160,13 @@ function Nav({ to, icon, label }) {
     </Link>
   );
 }
-function Auth({ onLogin }) {
+function Auth({ onLogin, notice = "" }) {
   const [mode, setMode] = useState("login"),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
+    [confirmPassword, setConfirmPassword] = useState(""),
+    [showPassword, setShowPassword] = useState(false),
+    [showConfirm, setShowConfirm] = useState(false),
     [name, setName] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -159,6 +174,7 @@ function Auth({ onLogin }) {
     e.preventDefault();
     setBusy(true);
     setError("");
+    if (mode === "register" && password !== confirmPassword) { setBusy(false); setError("Mật khẩu xác nhận chưa khớp."); return; }
     try {
       const d = await request("/auth/" + mode, {
         method: "POST",
@@ -184,15 +200,16 @@ function Auth({ onLogin }) {
           </span>{" "}
           MarketPilot<span className="brandAI">AI</span>
         </div>
-        <p className="eyebrow">YOUR AI MARKETING TEAM</p>
-        <h1>{mode === "login" ? "Welcome back" : "Create your workspace"}</h1>
+        <p className="eyebrow">ĐỘI NGŨ MARKETING AI CỦA BẠN</p>
+        <h1>{mode === "login" ? "Chào mừng bạn trở lại" : "Tạo không gian làm việc"}</h1>
         <p className="muted">
-          Strategy and useful marketing outputs, in one place.
+          Lập kế hoạch và tạo nội dung marketing hữu ích tại một nơi.
         </p>
+        {notice && <div className="success">{notice}</div>}
         <form onSubmit={submit}>
           {mode === "register" && (
             <label>
-              Your name
+              Họ và tên
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -201,7 +218,7 @@ function Auth({ onLogin }) {
             </label>
           )}
           <label>
-            Work email
+              Email
             <input
               type="email"
               value={email}
@@ -210,34 +227,28 @@ function Auth({ onLogin }) {
             />
           </label>
           <label>
-            Password
-            <input
-              type="password"
-              minLength="8"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </label>
+              Mật khẩu
+              <span className="passwordControl"><input type={showPassword ? "text" : "password"} minLength="8" value={password} onChange={(e) => setPassword(e.target.value)} required/><button type="button" className="passwordToggle" aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={17}/> : <Eye size={17}/>}</button></span></label>
+          {mode === "register" && <label>Xác nhận mật khẩu<span className="passwordControl"><input type={showConfirm ? "text" : "password"} minLength="8" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required/><button type="button" className="passwordToggle" aria-label={showConfirm ? "Ẩn mật khẩu" : "Hiện mật khẩu"} onClick={() => setShowConfirm(!showConfirm)}>{showConfirm ? <EyeOff size={17}/> : <Eye size={17}/>}</button></span></label>}
           {error && <div className="error">{error}</div>}
           <button className="primary full" disabled={busy}>
             {busy ? <LoaderCircle className="spin" /> : null}
-            {mode === "login" ? "Sign in" : "Create account"}
+            {mode === "login" ? "Đăng nhập" : "Tạo tài khoản"}
           </button>
         </form>
         <p className="switch">
           {mode === "login"
-            ? "New to MarketPilot?"
-            : "Already have an account?"}{" "}
+            ? "Chưa có tài khoản?"
+            : "Đã có tài khoản?"}{" "}
           <button
             onClick={() => setMode(mode === "login" ? "register" : "login")}
           >
-            {mode === "login" ? "Create account" : "Sign in"}
+            {mode === "login" ? "Đăng ký" : "Đăng nhập"}
           </button>
         </p>
       </div>
       <span className="authFoot">
-        Practical AI for clearer marketing decisions
+        AI thiết thực cho quyết định marketing rõ ràng hơn
       </span>
     </div>
   );
@@ -259,38 +270,38 @@ function Overview() {
     [sub, setSub] = useState(null),
     [workers, setWorkers] = useState([]);
   useEffect(() => {
-    request("/analytics").then(setData);
-    request("/packages/subscription").then(setSub);
-    request("/workers").then(setWorkers);
+    request("/analytics").then(setData).catch(() => {});
+    request("/packages/subscription").then(setSub).catch(() => {});
+    request("/workers").then(setWorkers).catch(() => {});
   }, []);
   return (
     <>
       <Heading
-        eyebrow="MONDAY, YOUR WORKSPACE"
-        title="Good marketing starts with context."
-        sub="Plan, create, and improve your next campaign with your AI workers."
+        eyebrow="MONDAY, YOUR KHÔNG GIAN LÀM VIỆC"
+        title="Marketing hiệu quả bắt đầu từ ngữ cảnh."
+        sub="Lập kế hoạch, sáng tạo và cải thiện chiến dịch cùng các Worker AI."
         action={
           <Link className="primary" to="/workers">
-            <Sparkles size={16} /> Explore workers
+            <Sparkles size={16} /> Khám phá Worker
           </Link>
         }
       />
       <div className="hero">
         <div className="heroCopy">
           <div className="heroTag">
-            <Sparkles size={14} /> YOUR AI MARKETING WORKSPACE
+            <Sparkles size={14} /> KHÔNG GIAN MARKETING AI
           </div>
           <h2>
-            Turn your next idea
+            Biến ý tưởng tiếp theo
             <br />
-            into a <em>clear action plan.</em>
+            thành <em>kế hoạch hành động rõ ràng.</em>
           </h2>
           <p>
-            Bring your business context into one place, then get focused support
+            Tập hợp thông tin doanh nghiệp tại một nơi và nhận hỗ trợ phù hợp
             from your marketing workers.
           </p>
           <Link to="/context" className="heroButton">
-            Set up marketing context <ArrowUpRight size={16} />
+            Thiết lập ngữ cảnh marketing <ArrowUpRight size={16} />
           </Link>
         </div>
         <div className="heroArt">
@@ -302,35 +313,35 @@ function Overview() {
             <div className="artOrbit orbit2" />
             <span className="floatCard fc1">? Audience insight</span>
             <span className="floatCard fc2">? Campaign plan</span>
-            <span className="floatCard fc3">? Brand voice</span>
+            <span className="floatCard fc3">? Giọng điệu thương hiệu</span>
           </div>
         </div>
       </div>
       <div className="stats">
-        <Stat label="Executions" value={data?.total ?? "�"} note="All time" />
+        <Stat label="Lượt thực thi" value={data?.total ?? "�"} note="Tất cả thời gian" />
         <Stat
-          label="Successful runs"
+          label="Lượt chạy thành công"
           value={data?.succeeded ?? "�"}
-          note="Completed outputs"
+          note="Kết quả đã hoàn tất"
         />
         <Stat
-          label="Available workers"
+          label="Worker khả dụng"
           value={workers.filter((w) => w.available).length || "�"}
-          note="Included in your plan"
+          note="Có trong gói của bạn"
         />
         <Stat
-          label="Current plan"
+          label="Gói hiện tại"
           value={sub?.package?.code || "�"}
-          note={sub?.package?.name || "Set up subscription"}
+          note={sub?.package?.name || "Thiết lập gói dịch vụ"}
         />
       </div>
       <div className="sectionTitle">
         <div>
-          <h2>Start with a worker</h2>
-          <p>Focused help for your next marketing decision.</p>
+          <h2>Bắt đầu với một Worker</h2>
+          <p>Hỗ trợ tập trung cho quyết định marketing tiếp theo.</p>
         </div>
         <Link to="/workers" className="textLink">
-          View all workers <ArrowUpRight size={15} />
+          Xem tất cả Worker <ArrowUpRight size={15} />
         </Link>
       </div>
       <div className="workerGrid">
@@ -346,14 +357,14 @@ function Overview() {
           <Users size={19} />
         </div>
         <div>
-          <strong>Give every worker the right context</strong>
+          <strong>Cung cấp đúng ngữ cảnh cho Worker</strong>
           <p>
             Add your product, audience, and goals once. Your workers can use it
             in every session.
           </p>
         </div>
         <Link to="/context">
-          Complete context <ArrowUpRight size={15} />
+          Hoàn tất ngữ cảnh <ArrowUpRight size={15} />
         </Link>
       </div>
     </>
@@ -378,7 +389,7 @@ function WorkerCard({ w }) {
       <h3>{w.name}</h3>
       <p>{w.description}</p>
       <span className="cardLink">
-        Open worker <ArrowUpRight size={14} />
+        Mở Worker <ArrowUpRight size={14} />
       </span>
     </Link>
   );
@@ -387,7 +398,7 @@ function Workers() {
   const [list, setList] = useState([]),
     [filter, setFilter] = useState("All");
   useEffect(() => {
-    request("/workers").then(setList);
+    request("/workers").then(setList).catch(() => {});
   }, []);
   const shown = list.filter(
     (w) => filter === "All" || w.requiredPackage === filter,
@@ -395,9 +406,9 @@ function Workers() {
   return (
     <>
       <Heading
-        eyebrow="YOUR TOOLKIT"
-        title="AI workers"
-        sub="Specialized support for strategy, campaigns, content, and growth."
+        eyebrow="BỘ CÔNG CỤ CỦA BẠN"
+        title="Worker AI"
+        sub="Hỗ trợ chuyên sâu về chiến lược, chiến dịch, nội dung và tăng trưởng."
       />
       <div className="filters">
         {["All", "M1", "M2", "M3", "M4"].map((x) => (
@@ -406,7 +417,7 @@ function Workers() {
             onClick={() => setFilter(x)}
             key={x}
           >
-            {x === "All" ? "All workers" : x}
+            {x === "All" ? "Tất cả Worker" : x}
           </button>
         ))}
       </div>
@@ -421,11 +432,11 @@ function Workers() {
                   <Sparkles size={18} />
                 </div>
                 <span className="pill">
-                  {w.requiredPackage} � Upgrade required
+                  {w.requiredPackage} � Cần nâng cấp gói
                 </span>
                 <h3>{w.name}</h3>
                 <p>{w.description}</p>
-                <span className="muted">Not included in current package</span>
+                <span className="muted">Không có trong gói hiện tại</span>
               </div>
             )}
           </div>
@@ -444,7 +455,7 @@ function Worker() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   useEffect(() => {
-    request("/workers").then((a) => setW(a.find((x) => x.slug === slug)));
+    request("/workers").then((a) => setW(a.find((x) => x.slug === slug))).catch(() => {});
   }, [slug]);
   async function run(e) {
     e.preventDefault();
@@ -463,7 +474,7 @@ function Worker() {
       setBusy(false);
     }
   }
-  if (!w) return <p>Loading worker�</p>;
+  if (!w) return <p>Đang tải Worker�</p>;
   return (
     <>
       <Heading
@@ -473,13 +484,13 @@ function Worker() {
       />
       <div className="executionLayout">
         <section className="panel">
-          <h2>Build your brief</h2>
+          <h2>Tạo bản mô tả</h2>
           <p className="muted">
-            Your saved marketing context will be included automatically.
+            Ngữ cảnh marketing đã lưu sẽ được tự động sử dụng.
           </p>
           <form onSubmit={run}>
             <label>
-              What are you working on?
+              Bạn đang cần thực hiện việc gì?
               <textarea
                 required
                 minLength="3"
@@ -489,47 +500,47 @@ function Worker() {
               />
             </label>
             <label>
-              Target audience
+              Đối tượng mục tiêu
               <input
                 value={audience}
                 onChange={(e) => setAudience(e.target.value)}
-                placeholder="Optional"
+                placeholder="Không bắt buộc"
               />
             </label>
             <label>
-              Constraints or additional detail
+              Điều kiện hoặc thông tin bổ sung
               <textarea
                 value={constraints}
                 onChange={(e) => setConstraints(e.target.value)}
-                placeholder="Optional"
+                placeholder="Không bắt buộc"
               />
             </label>
-            {error && <div className="error">{error}</div>}
+          {error && <div className="error">{error}</div>}
             <button className="primary" disabled={busy || !w.available}>
               {busy ? <LoaderCircle className="spin" /> : <Play size={16} />}{" "}
-              {busy ? "Generating�" : "Generate recommendations"}
+              {busy ? "Đang tạo�" : "Tạo đề xuất"}
             </button>
           </form>
         </section>
         <section className="panel resultPanel">
           <div className="resultHeading">
             <div>
-              <p className="eyebrow">WORKER OUTPUT</p>
-              <h2>Your result</h2>
+              <p className="eyebrow">KẾT QUẢ WORKER</p>
+              <h2>Kết quả của bạn</h2>
             </div>
             <Sparkles size={19} />
           </div>
           {result ? (
             <>
               <p>{result.summary}</p>
-              <h3>Recommendations</h3>
+              <h3>Đề xuất</h3>
               {result.recommendations.map((r, i) => (
                 <div className="recommendation" key={i}>
                   <b>{r.title || `Recommendation ${i + 1}`}</b>
                   <p>{r.detail || JSON.stringify(r)}</p>
                 </div>
               ))}
-              <h3>Assumptions</h3>
+              <h3>Giả định</h3>
               <ul>
                 {result.assumptions.map((x, i) => (
                   <li key={i}>{x}</li>
@@ -541,7 +552,7 @@ function Worker() {
               <div className="emptyIcon">
                 <Sparkles size={22} />
               </div>
-              <strong>Nothing generated yet</strong>
+              <strong>Chưa có kết quả</strong>
               <span>
                 Complete the brief and run your worker to see structured
                 recommendations here.
@@ -585,25 +596,25 @@ function Context() {
             ? x.competitors.join(", ")
             : "",
         }),
-    );
+    ).catch(() => {});
   }, []);
   const fields = [
-    ["businessName", "Business name"],
-    ["brandDescription", "Brand description"],
-    ["productService", "Product or service"],
-    ["productPrice", "Price"],
-    ["targetMarket", "Target market"],
-    ["targetCustomer", "Target customer"],
-    ["brandVoice", "Brand voice"],
-    ["brandTone", "Brand tone"],
-    ["businessGoals", "Business goals"],
-    ["marketingGoals", "Marketing goals"],
-    ["uniqueSellingPoints", "Unique selling points"],
-    ["competitors", "Competitors (comma separated)"],
-    ["location", "Location"],
-    ["industry", "Industry"],
-    ["website", "Website"],
-    ["additionalNotes", "Additional notes"],
+    ["businessName", "Tên doanh nghiệp"],
+    ["brandDescription", "Mô tả thương hiệu"],
+    ["productService", "Sản phẩm hoặc dịch vụ"],
+    ["productPrice", "Giá"],
+    ["targetMarket", "Thị trường mục tiêu"],
+    ["targetCustomer", "Khách hàng mục tiêu"],
+    ["brandVoice", "Giọng điệu thương hiệu"],
+    ["brandTone", "Sắc thái thương hiệu"],
+    ["businessGoals", "Mục tiêu kinh doanh"],
+    ["marketingGoals", "Mục tiêu marketing"],
+    ["uniqueSellingPoints", "Điểm bán hàng nổi bật"],
+    ["competitors", "Đối thủ cạnh tranh (phân tách bằng dấu phẩy)"],
+    ["location", "Địa điểm"],
+    ["industry", "Ngành hàng"],
+    ["website", "Trang web"],
+    ["additionalNotes", "Ghi chú bổ sung"],
   ];
   async function save(e) {
     e.preventDefault();
@@ -624,7 +635,7 @@ function Context() {
         }),
       });
       setMessage(
-        "Marketing context saved. Workers will use it in future runs.",
+        "Đã lưu ngữ cảnh marketing. Worker sẽ sử dụng thông tin này trong các lượt chạy sau.",
       );
     } catch (e) {
       setMessage(e.message);
@@ -635,9 +646,9 @@ function Context() {
   return (
     <>
       <Heading
-        eyebrow="YOUR BRAND FOUNDATION"
-        title="Marketing context"
-        sub="Share the details workers need. Add it once and reuse it across your work."
+        eyebrow="NỀN TẢNG THƯƠNG HIỆU"
+        title="Ngữ cảnh marketing"
+        sub="Chia sẻ thông tin cần thiết để Worker sử dụng xuyên suốt công việc."
       />
       <form className="panel contextForm" onSubmit={save}>
         <div className="formGrid">
@@ -704,21 +715,21 @@ function Context() {
 function HistoryPage() {
   const [list, setList] = useState([]);
   useEffect(() => {
-    request("/workers/executions").then(setList);
+    request("/workers/executions").then(setList).catch(() => {});
   }, []);
   return (
     <>
       <Heading
-        eyebrow="YOUR ACTIVITY"
-        title="Execution history"
-        sub="Review outputs generated by your marketing workers."
+        eyebrow="HOẠT ĐỘNG CỦA BẠN"
+        title="Lịch sử thực thi"
+        sub="Xem lại kết quả do các Worker marketing tạo ra."
       />
       <div className="panel tablePanel">
         <div className="tableHead">
           <span>WORKER</span>
-          <span>STATUS</span>
-          <span>DATE</span>
-          <span>DURATION</span>
+          <span>TRẠNG THÁI</span>
+          <span>NGÀY</span>
+          <span>THỜI LƯỢNG</span>
         </div>
         {list.length ? (
           list.map((x) => (
@@ -743,39 +754,39 @@ function HistoryPage() {
 function Analytics() {
   const [data, setData] = useState(null);
   useEffect(() => {
-    request("/analytics").then(setData);
+    request("/analytics").then(setData).catch(() => {});
   }, []);
   return (
     <>
       <Heading
-        eyebrow="WORKSPACE HEALTH"
-        title="Analytics"
-        sub="Internal worker activity only. External campaign metrics are not connected."
+        eyebrow="TÌNH TRẠNG KHÔNG GIAN LÀM VIỆC"
+        title="Phân tích"
+        sub="Thống kê hoạt động Worker nội bộ. Chưa kết nối số liệu chiến dịch bên ngoài."
       />
       <div className="stats analyticsStats">
         <Stat
-          label="Total executions"
+          label="Tổng lượt thực thi"
           value={data?.total ?? "�"}
-          note="All time"
+          note="Tất cả thời gian"
         />
         <Stat
-          label="Successful"
+          label="Thành công"
           value={data?.succeeded ?? "�"}
-          note="Generated results"
+          note="Kết quả đã tạo"
         />
         <Stat
-          label="Failed"
+          label="Thất bại"
           value={data?.failed ?? "�"}
-          note="Runs needing attention"
+          note="Lượt chạy cần được xem lại"
         />
         <Stat
-          label="Recent activity"
+          label="Hoạt động gần đây"
           value={data?.recent?.length ?? "�"}
-          note="Latest 10 runs"
+          note="10 lượt chạy gần đây"
         />
       </div>
       <div className="panel">
-        <h2>Recent activity</h2>
+        <h2>Hoạt động gần đây</h2>
         {data?.recent?.map((x) => (
           <div className="activityRow" key={x.id}>
             <span className="workerIcon">
@@ -795,24 +806,24 @@ function Analytics() {
 function SettingsPage() {
   const [data, setData] = useState(null);
   useEffect(() => {
-    request("/packages/subscription").then(setData);
+    request("/packages/subscription").then(setData).catch(() => {});
   }, []);
   return (
     <>
       <Heading
-        eyebrow="ACCOUNT"
-        title="Settings"
-        sub="Your package and workspace configuration."
+        eyebrow="TÀI KHOẢN"
+        title="Cài đặt"
+        sub="Gói dịch vụ và cấu hình không gian làm việc của bạn."
       />
       <div className="panel planPanel">
         <div>
-          <p className="eyebrow">CURRENT SUBSCRIPTION</p>
-          <h2>{data?.package?.name || "No active plan"}</h2>
+          <p className="eyebrow">GÓI DỊCH VỤ HIỆN TẠI</p>
+          <h2>{data?.package?.name || "Chưa có gói hoạt động"}</h2>
           <p className="muted">
             {data?.package?.priceVnd
               ? new Intl.NumberFormat("vi-VN").format(data.package.priceVnd) +
-                " ? / month"
-              : "Custom pricing"}{" "}
+                " VNĐ / tháng"
+              : "Giá tùy chỉnh"}{" "}
             � {data?.status || "�"}
           </p>
         </div>
