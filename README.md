@@ -83,6 +83,14 @@ All Agent and existing private APIs require `Authorization: Bearer <token>`.
 | PATCH | `/api/approvals/:id` | Decide a pending approval |
 | GET/POST | `/api/workflows` | Custom workflow definition foundation |
 
+### Meta Ads
+
+Meta Ads uses a server-side OAuth callback at `META_REDIRECT_URI` (set the exact same URL in the Meta app dashboard). Configure `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI`, and a random 32-byte `META_TOKEN_ENCRYPTION_KEY` encoded as 64 hexadecimal characters. The default Graph API version is `v26.0`; override it with `META_GRAPH_API_VERSION` when needed. OAuth requests `ads_management`, `ads_read`, `pages_show_list`, and `pages_read_engagement`; Meta app review/advanced access may be required for users outside the app's roles.
+
+Authenticated routes under `/api/meta` create the OAuth URL, report connection status, list ad accounts and Pages, save selected assets, create a Campaign Specification from a successful Agent run, and create/read/pause/resume campaigns. The OAuth callback is the only public route and is protected by a short-lived, single-use state. Access tokens are encrypted at rest and are never returned to the frontend.
+
+The Agent's **Approve & Launch** action creates only a Meta campaign with `PAUSED` status. This MVP does not create an ad set or ad, so the campaign cannot deliver ads from this flow. **Launch Campaign** is a separate, confirmed action that sets a paused campaign to `ACTIVE`; use it only after reviewing any ad sets or ads on the Meta account.
+
 Create plan input shape:
 
 ```json
@@ -107,7 +115,7 @@ Add an implementation in `src/services/providers` that accepts normalized prompt
 
 ### Packages and integrations
 
-Update package capability seed data for new commercial access. Add future external integration behavior behind `src/integrations`; current Facebook, Google Ads, TikTok, CRM, ERP, CDP, and website adapters remain unconfigured. V3 can connect approved marketing output to those adapters.
+Update package capability seed data for new commercial access. Meta Ads uses the provider/service boundary in `src/services/ads`; other Google Ads, TikTok, CRM, ERP, CDP, and website adapters remain unconfigured. V3 can connect approved marketing output to those adapters.
 
 ## V1 capabilities preserved
 
@@ -115,7 +123,7 @@ JWT authentication, password hashing, package/subscription checks, Marketing Con
 
 ## Known limits
 
-- Real ad creation, publishing, budget spend, and external ad analytics are not part of V2.
+- Meta campaign records can be created paused; ad set/ad creation, publishing, spend, and external ad analytics are not implemented.
 - Payment, CRM/ERP synchronization, and a production automation scheduler are not implemented.
 - Gemini calls require a valid server-side key and configured model. Provider access was not verified against a live Gemini account.
 - Agent runs use a bounded in-process executor, not a durable queue.

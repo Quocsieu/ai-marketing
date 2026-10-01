@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { workerDescription, workerName } from "../utils/workerPresentation";
+import MetaCampaignReview from "../components/MetaCampaignReview";
 import { ArrowLeft, ArrowRight, Bot, Check, Circle, LoaderCircle, Play, RefreshCw, Sparkles } from "lucide-react";
 import "./agent.css";
 
@@ -9,6 +11,7 @@ const emptyProduct = {
 };
 const emptyGoal = { objective: "", budget: "", campaignPeriod: "", targetPlatforms: [], constraints: "" };
 const platforms = ["Facebook", "Google", "TikTok", "Website", "Email", "Other"];
+const objectiveSuggestions = ["Tăng nhận diện thương hiệu", "Tăng tương tác", "Tăng lưu lượng truy cập", "Tăng chuyển đổi", "Tăng doanh số"];
 
 export default function AgentPage({ request }) {
   const navigate = useNavigate();
@@ -120,10 +123,11 @@ export default function AgentPage({ request }) {
         <div>
           <p className="eyebrow">ĐIỀU PHỐI NHIỀU WORKER</p>
           <h1>AI Marketing Agent</h1>
-          <p className="muted">Nhập thông tin, xem kế hoạch, rồi duyệt để Agent thực hiện.</p>
+          <p className="muted">Để AI lập kế hoạch marketing cho sản phẩm của bạn.</p>
         </div>
         {mode !== "form" && <button className="agentSecondary" onClick={reset}><RefreshCw size={15}/> Tạo lượt chạy mới</button>}
       </div>
+
 
       <div className="agentStepsBar">
         {["Thông tin", "Chọn Worker", "Duyệt kế hoạch", "Thực thi & kết quả"].map((label, index) => {
@@ -133,10 +137,19 @@ export default function AgentPage({ request }) {
       </div>
       {error && <div className="error agentError">{error}</div>}
 
+      {runId && run && <section className="runDetail panel">
+        <div className="agentSectionHead"><span className="agentIcon"><Bot size={17}/></span><div><h2>Chi tiết lượt chạy</h2><p>{run.createdAt ? new Date(run.createdAt).toLocaleString("vi-VN") : ""} · {({SUCCEEDED:"Thành công",FAILED:"Thất bại",RUNNING:"Đang thực hiện",AWAITING_APPROVAL:"Chờ duyệt",PLANNING:"Đang lập kế hoạch"})[run.status] || run.status}</p></div><button className="agentSecondary" onClick={() => navigate("/agent")}>Quay lại Agent</button></div>
+        <div className="runInfoGrid"><div><small>SẢN PHẨM</small><strong>{run.productInput?.name || "—"}</strong></div><div><small>MỤC TIÊU</small><strong>{run.goal?.objective || "—"}</strong></div><div><small>WORKER ĐÃ CHỌN</small><strong>{run.selectedWorkers?.length || 0}</strong></div></div>
+        <h3>Kế hoạch</h3><p className="runDetailReason">{plan?.reorderExplanation}</p>
+        <div className="runDetailSteps">{plan?.steps?.map((step) => <div className="runDetailStep" key={step.workerSlug}><b>{step.order}. {workerName(workers.find((item) => item.slug === step.workerSlug) || {slug:step.workerSlug,name:step.workerSlug})}</b><span>{step.reason}</span>{step.dependsOn?.length > 0 && <small>Phụ thuộc: {step.dependsOn.map((slug) => { const dependency = workers.find((item) => item.slug === slug); return dependency ? workerName(dependency) : slug; }).join(", ")}</small>}</div>)}</div>
+        <h3>Các bước của Agent</h3>{run.steps?.length ? <div className="runDetailSteps">{run.steps.map((step) => <div className="runDetailStep" key={step.id}><b>{workerName(workers.find((item) => item.slug === step.workerSlug) || {slug:step.workerSlug,name:step.workerSlug})} · {({SUCCEEDED:"Hoàn thành",RUNNING:"Đang thực hiện",PENDING:"Chờ thực hiện",FAILED:"Thất bại"})[step.status] || step.status}</b><span>{step.reason}</span>{step.decision?.decision === "RETRY" && <small>Đã thử lại {step.retryCount || 0} lần · {step.decision.reason}</small>}{step.errorMessage && <small>Worker chưa hoàn thành; hãy kiểm tra cấu hình rồi thử lại.</small>}</div>)}</div> : <p className="muted">Các bước sẽ xuất hiện sau khi kế hoạch được duyệt và bắt đầu chạy.</p>}
+        <h3>Lượt thực thi Worker</h3>{run.steps?.some((step) => step.executions?.length) ? <div className="executionRecords">{run.steps.flatMap((step) => (step.executions || []).map((execution) => <div key={execution.id}><strong>{workerName(workers.find((item) => item.slug === step.workerSlug) || {slug:step.workerSlug,name:step.workerSlug})}</strong><span>{({SUCCEEDED:"Thành công",FAILED:"Thất bại",RUNNING:"Đang thực hiện",PENDING:"Chờ thực hiện"})[execution.status] || execution.status}</span><small>{execution.createdAt ? new Date(execution.createdAt).toLocaleString("vi-VN") : ""}{execution.durationMs ? ` · ${execution.durationMs} ms` : ""}</small></div>))}</div> : <p className="muted">Chưa có lượt thực thi Worker.</p>}
+      </section>}
+
       {mode === "form" && <form className="agentForm" onSubmit={createPlan}>
         <div className="agentFormGrid">
-          <section className="panel agentPanel">
-            <div className="agentSectionHead"><span className="agentIcon"><Sparkles size={17}/></span><div><h2>Thông tin sản phẩm</h2><p>Mô tả sản phẩm; ngữ cảnh marketing đã lưu sẽ được tự động sử dụng.</p></div></div>
+          <section className="panel agentPanel" id="agent-product-form">
+            <div className="agentSectionHead"><span className="agentIcon"><Sparkles size={17}/></span><div><h2>1. Sản phẩm</h2><p>Mô tả sản phẩm; ngữ cảnh marketing đã lưu sẽ được tự động sử dụng.</p></div></div>
             <div className="agentFields">
               <label>Tên sản phẩm *<input required maxLength="160" value={product.name} onChange={(e) => setProduct({ ...product, name: e.target.value })} placeholder="Ví dụ: Gundam RX-78-2"/></label>
               <label>Giá<input value={product.price} onChange={(e) => setProduct({ ...product, price: e.target.value })} placeholder="Ví dụ: 390.000 VNĐ"/></label>
@@ -152,47 +165,50 @@ export default function AgentPage({ request }) {
           </section>
 
           <section className="panel agentPanel">
-            <div className="agentSectionHead"><span className="agentIcon"><Bot size={17}/></span><div><h2>Mục tiêu marketing</h2><p>Xác định kết quả mong muốn để các Worker cùng hướng tới.</p></div></div>
+            <div className="agentSectionHead"><span className="agentIcon"><Bot size={17}/></span><div><h2>2. Mục tiêu marketing</h2><p>Xác định kết quả mong muốn để các Worker cùng hướng tới.</p></div></div>
             <div className="agentFields">
-              <label className="span2">Mục tiêu *<textarea required minLength={3} maxLength={1500} value={goal.objective} onChange={(e) => setGoal({ ...goal, objective: e.target.value })} placeholder="Tăng doanh số trong tháng 10"/></label>
+              <label className="span2">Mục tiêu *<div className="quickChoices">{objectiveSuggestions.map((suggestion) => <button type="button" key={suggestion} className={goal.objective === suggestion ? "quickChoice selected" : "quickChoice"} onClick={() => setGoal({ ...goal, objective: suggestion })}>{suggestion}</button>)}</div><textarea required minLength={3} maxLength={1500} value={goal.objective} onChange={(e) => setGoal({ ...goal, objective: e.target.value })} placeholder="Chọn gợi ý hoặc mô tả mục tiêu riêng của bạn"/></label>
               <label>Ngân sách<input value={goal.budget} onChange={(e) => setGoal({ ...goal, budget: e.target.value })} placeholder="Ví dụ: 10.000.000 VNĐ"/></label>
               <label>Thời gian chiến dịch<input value={goal.campaignPeriod} onChange={(e) => setGoal({ ...goal, campaignPeriod: e.target.value })} placeholder="Tháng 10"/></label>
-              <fieldset className="span2 platformField"><legend>Target platforms</legend><div>{platforms.map((platform) => <label className="platformChoice" key={platform}><input type="checkbox" checked={goal.targetPlatforms.includes(platform)} onChange={() => setGoal({ ...goal, targetPlatforms: goal.targetPlatforms.includes(platform) ? goal.targetPlatforms.filter((item) => item !== platform) : [...goal.targetPlatforms, platform] })}/>{platform}</label>)}</div></fieldset>
+              <fieldset className="span2 platformField"><legend>Nền tảng mục tiêu</legend><div>{platforms.map((platform) => <label className="platformChoice" key={platform}><input type="checkbox" checked={goal.targetPlatforms.includes(platform)} onChange={() => setGoal({ ...goal, targetPlatforms: goal.targetPlatforms.includes(platform) ? goal.targetPlatforms.filter((item) => item !== platform) : [...goal.targetPlatforms, platform] })}/>{{Facebook: "Facebook", Google: "Google", TikTok: "TikTok", Website: "Trang web", Email: "Email", Other: "Khác"}[platform]}</label>)}</div></fieldset>
               <label className="span2">Điều kiện cần lưu ý<textarea value={goal.constraints} onChange={(e) => setGoal({ ...goal, constraints: e.target.value })} placeholder="Yêu cầu về thương hiệu, pháp lý, thời gian hoặc ngân sách"/></label>
             </div>
           </section>
         </div>
 
         <section className="panel agentPanel selectPanel">
-          <div className="agentSectionHead"><span className="agentIcon"><Check size={17}/></span><div><h2>Chọn Worker cho lượt chạy này</h2><p>Agent lập kế hoạch với các Worker khả dụng trong gói của bạn.</p></div><span className="selectedCount">Đã chọn {selected.length}/8 Worker</span></div>
-          <div className="agentWorkerGrid">{workers.map((worker) => <label className={selected.includes(worker.slug) ? "agentWorkerChoice selected" : "agentWorkerChoice"} key={worker.slug}><input type="checkbox" checked={selected.includes(worker.slug)} disabled={!selected.includes(worker.slug) && selected.length >= 8} onChange={() => toggleWorker(worker.slug)}/><span><strong>{worker.name}</strong><small>{worker.description}</small></span><span className="workerTier">{worker.requiredPackage}</span></label>)}</div>
-          {!workers.length && <p className="muted">Loading your available workers…</p>}
+          <div className="agentSectionHead"><span className="agentIcon"><Check size={17}/></span><div><h2>3. Workers</h2><p>Agent lập kế hoạch với các Worker khả dụng trong gói của bạn.</p></div><span className="selectedCount">Đã chọn {selected.length}/8 Worker</span></div>
+          <div className="agentWorkerGrid">{workers.map((worker) => <label className={selected.includes(worker.slug) ? "agentWorkerChoice selected" : "agentWorkerChoice"} key={worker.slug}><input type="checkbox" checked={selected.includes(worker.slug)} disabled={!selected.includes(worker.slug) && selected.length >= 8} onChange={() => toggleWorker(worker.slug)}/><span><strong>{workerName(worker)}</strong><small>{workerDescription(worker)}</small></span><span className="workerTier">{worker.requiredPackage}</span></label>)}</div>
+          {!workers.length && <p className="muted">Đang tải danh sách Worker…</p>}
           <div className="agentActions"><span className="muted">Chọn từ 1 đến 8 Worker. Kế hoạch sẽ giải thích nếu cần đổi thứ tự.</span><button className="primary" disabled={busy || !selected.length}>{busy ? <LoaderCircle className="spin" size={15}/> : <Sparkles size={15}/>} Lập kế hoạch</button></div>
         </section>
       </form>}
 
       {mode === "review" && <section className="panel planReview">
-        <div className="agentSectionHead"><span className="agentIcon"><Sparkles size={17}/></span><div><h2>Duyệt kế hoạch thực hiện</h2><p><strong>{plan?.goal}</strong></p></div></div>
+        <div className="agentSectionHead"><span className="agentIcon"><Sparkles size={17}/></span><div><h2>4. Kế hoạch AI đề xuất</h2><p><strong>{plan?.goal}</strong></p></div></div>
         {plan?.orderChanged && <div className="reorderNotice"><RefreshCw size={16}/><span><strong>Agent đã thay đổi thứ tự Worker</strong><small>{plan.reorderExplanation}</small></span></div>}
         {!plan?.orderChanged && <p className="planReasonIntro">{plan?.reorderExplanation}</p>}
-        <div className="planTimeline">{plan?.steps?.map((step) => { const worker = workers.find((item) => item.slug === step.workerSlug); return <div className="planItem" key={step.workerSlug}><span className="planOrder">{step.order}</span><div><strong>{worker?.name || step.workerSlug}</strong><p>{step.reason}</p>{step.dependsOn?.length > 0 && <small>Phụ thuộc vào: {step.dependsOn.map((slug) => workers.find((item) => item.slug === slug)?.name || slug).join(", ")}</small>}</div></div>; })}</div>
+        <div className="planTimeline">{plan?.steps?.map((step) => { const worker = workers.find((item) => item.slug === step.workerSlug); return <div className="planItem" key={step.workerSlug}><span className="planOrder">{step.order}</span><div><strong>{worker ? workerName(worker) : step.workerSlug}</strong><p>{step.reason}</p>{step.dependsOn?.length > 0 && <small>Phụ thuộc vào: {step.dependsOn.map((slug) => { const dependency = workers.find((item) => item.slug === slug); return dependency ? workerName(dependency) : slug; }).join(", ")}</small>}</div></div>; })}</div>
         <div className="planProductSummary"><b>{run?.productInput?.name}</b><span>{run?.goal?.objective}</span><span>{run?.selectedWorkers?.length} Worker được chọn · kế hoạch đang chờ bạn duyệt</span></div>
         <div className="agentActions"><button className="agentSecondary" onClick={() => setMode("form")}><ArrowLeft size={15}/> Sửa thông tin hoặc Worker</button><button className="primary" disabled={busy} onClick={startRun}>{busy ? <LoaderCircle className="spin" size={15}/> : <Play size={15}/>} Duyệt kế hoạch và chạy Agent</button></div>
       </section>}
 
       {(mode === "running" || mode === "failed") && <section className="panel runProgress">
-        <div className="agentSectionHead"><span className="agentIcon"><Bot size={17}/></span><div><h2>{mode === "failed" ? "Agent đã dừng" : "Agent đang thực hiện…"}</h2><p>{mode === "failed" ? "Lượt chạy chưa thể hoàn thành. Vui lòng thử lại sau." : "Các Worker đang chạy theo thứ tự đã duyệt; kết quả sẽ được dùng cho bước tiếp theo."}</p></div>{mode === "running" && <LoaderCircle className="spin progressSpinner" size={20}/>}</div>
-        <div className="planTimeline">{plan?.steps?.map((step) => { const state = run?.steps?.find((item) => item.workerSlug === step.workerSlug); const done = completed.has(step.workerSlug); const retrying = state?.decision?.decision === "RETRY" && !done; const working = state?.status === "RUNNING"; return <div className="planItem runItem" key={step.workerSlug}><span className={done ? "runCheck done" : working ? "runCheck working" : "runCheck"}>{done ? <Check size={14}/> : working ? <LoaderCircle className="spin" size={14}/> : <Circle size={14}/>}</span><div><strong>{workers.find((item) => item.slug === step.workerSlug)?.name || step.workerSlug}</strong><p>{retrying ? `Đang thử lại lần ${Math.max(1, state.retryCount || 0)}/1` : working ? "Đang tạo và đánh giá kết quả…" : state?.status === "FAILED" ? "Worker chưa thể hoàn thành." : done ? "Hoàn thành" : "Chờ thực hiện"}</p></div></div>; })}</div>
-        {mode === "failed" && <div className="agentActions"><button className="agentSecondary" onClick={reset}>Start another run</button></div>}
+        <div className="agentSectionHead"><span className="agentIcon"><Bot size={17}/></span><div><h2>{mode === "failed" ? "Agent đã dừng" : "5. Đang thực thi"}</h2><p>{mode === "failed" ? "Lượt chạy chưa thể hoàn thành. Vui lòng thử lại sau." : "Các Worker đang chạy theo thứ tự đã duyệt; kết quả sẽ được dùng cho bước tiếp theo."}</p></div>{mode === "running" && <LoaderCircle className="spin progressSpinner" size={20}/>}</div>
+        <div className="planTimeline">{plan?.steps?.map((step) => { const state = run?.steps?.find((item) => item.workerSlug === step.workerSlug); const done = completed.has(step.workerSlug); const retrying = state?.decision?.decision === "RETRY" && !done; const working = state?.status === "RUNNING"; const worker = workers.find((item) => item.slug === step.workerSlug); return <div className="planItem runItem" key={step.workerSlug}><span className={done ? "runCheck done" : working ? "runCheck working" : "runCheck"}>{done ? <Check size={14}/> : working ? <LoaderCircle className="spin" size={14}/> : <Circle size={14}/>}</span><div><strong>{worker ? workerName(worker) : step.workerSlug}</strong><p>{retrying ? `Đang thử lại lần ${Math.max(1, state.retryCount || 0)}/1` : working ? "Đang tạo và đánh giá kết quả…" : state?.status === "FAILED" ? "Worker chưa thể hoàn thành." : done ? "Hoàn thành" : "Chờ thực hiện"}</p></div></div>; })}</div>
+        {mode === "failed" && <div className="agentActions"><button className="agentSecondary" onClick={reset}>Tạo lượt chạy mới</button></div>}
       </section>}
 
       {mode === "result" && <section className="agentResultLayout">
         <div className="panel finalSummary"><p className="eyebrow">KẾT QUẢ MARKETING</p><h2>{run?.productInput?.name} · {run?.goal?.objective}</h2><h3>Tóm tắt</h3><p>{output?.executiveSummary}</p><h3>Đề xuất tiếp theo</h3><ol>{output?.nextActions?.map((action, index) => <li key={index}>{action}</li>)}</ol></div>
         <div className="panel"><div className="agentSectionHead"><span className="agentIcon"><Check size={17}/></span><div><h2>Kết quả từ các Worker</h2><p>{output?.workerOutputs?.length || 0} Worker đã hoàn thành.</p></div></div>
-          {(output?.workerOutputs || []).map((item) => <article className="agentOutputCard" key={item.workerSlug}><div><span className="workerTier">{item.workerName}</span><h3>{item.output.summary}</h3></div><div className="agentRecommendations">{item.output.recommendations?.map((rec, index) => <div key={index}><strong>{rec.title || `Recommendation ${index + 1}`}</strong><p>{rec.detail || JSON.stringify(rec)}</p></div>)}</div></article>)}
+          <div className="aiOutput">{(output?.workerOutputs || []).map((item) => <article className="agentOutputCard" key={item.workerSlug}><div><span className="workerTier">{workerName({slug:item.workerSlug,name:item.workerName})}</span><h3>{item.output.summary}</h3></div><div className="agentRecommendations">{item.output.recommendations?.map((rec, index) => <div key={index}><strong>{rec.title || `Đề xuất ${index + 1}`}</strong><p>{rec.detail || ""}</p></div>)}</div></article>)}
           {!!output?.assumptions?.length && <div className="assumptionBox"><strong>Giả định</strong><ul>{output.assumptions.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
+          </div>
         </div>
       </section>}
+
+      {mode === "result" && run?.id && <MetaCampaignReview request={request} run={run} />}
 
       <section className="agentHistory"><div className="sectionTitle"><div><h2>Lịch sử AI Agent</h2><p>Xem lại kế hoạch và kết quả đã lưu mà không cần chạy lại.</p></div></div><div className="agentHistoryList">{history.slice(0, 5).map((item) => <button key={item.id} className="agentHistoryItem" onClick={() => loadHistory(item.id)}><span><strong>{item.productInput?.name || "Lượt chạy marketing"}</strong><small>{item.goal?.objective || item.goal}</small><small>{item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : ""}</small></span><span className={`status ${item.status === "SUCCEEDED" ? "succeeded" : item.status === "FAILED" ? "failed" : "pending"}`}>{{SUCCEEDED:"Thành công",FAILED:"Thất bại",RUNNING:"Đang thực hiện",PENDING:"Chờ thực hiện",PLANNING:"Đang lập kế hoạch"}[item.status] || item.status}</span><ArrowRight size={15}/></button>)}</div></section>
     </div>

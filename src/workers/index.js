@@ -32,7 +32,7 @@ module.exports = catalog.map((worker) => ({
     const agentContextText = agentContext
       ? JSON.stringify(agentContext).slice(0, 5000)
       : "Manual worker execution; no Agent run context.";
-    const prompt = `SYSTEM: You are a careful, practical marketing advisor.\nWORKER: ${worker.name}\nINSTRUCTIONS: ${worker.instructions}\nMARKETING CONTEXT:\n${contextText.slice(0, 2500)}\nAGENT PRODUCT, GOAL, AND PREVIOUS WORKER OUTPUTS (bounded context):\n${agentContextText}\nOBJECTIVE: ${input.objective}\nAUDIENCE: ${input.audience || "Not specified"}\nCONSTRAINTS: ${input.constraints || "Not specified"}\nReturn JSON with summary (string), recommendations (array of objects), assumptions (array of strings).`;
+    const prompt = `SYSTEM: You are a careful, practical marketing advisor. Write every user-facing output in natural Vietnamese.\nWORKER: ${worker.name}\nINSTRUCTIONS: ${worker.instructions}\nMARKETING CONTEXT:\n${contextText.slice(0, 2500)}\nAGENT PRODUCT, GOAL, AND PREVIOUS WORKER OUTPUTS (bounded context):\n${agentContextText}\nOBJECTIVE: ${input.objective}\nAUDIENCE: ${input.audience || "Not specified"}\nCONSTRAINTS: ${input.constraints || "Not specified"}\nReturn JSON with summary (string), recommendations (array of objects), assumptions (array of strings). Keep JSON field names and technical enum values unchanged.`;
     return aiService.generate({ prompt, outputSchema: worker.outputSchema });
   },
 }));

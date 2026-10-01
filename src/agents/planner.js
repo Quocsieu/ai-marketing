@@ -15,9 +15,10 @@ async function createPlan({ product, goal, selectedWorkers, context }) {
   });
   const prompt = [
     "TASK: agent-planner",
+    "Write all user-facing content, including step reasons and reorderExplanation, in natural Vietnamese. Keep worker slugs and schema field names unchanged.",
     "Create an execution plan using only the selected workers below. Order steps by useful dependencies. Return structured JSON matching the supplied schema.",
     "If you change the user's selected order, set orderChanged=true and clearly explain the reason. Each step needs a concise reason and dependencies listed by worker slug. A dependency must appear earlier in the plan.",
-    `PRODUCT: ${JSON.stringify(product)}`,
+    `PRODUCT: ${JSON.stringify(product).slice(0, 8000)}`,
     `MARKETING GOAL: ${JSON.stringify(goal)}`,
     `SAVED MARKETING CONTEXT: ${safeContext(context)}`,
     `USER SELECTED WORKER ORDER: ${selectedWorkers.join(", ")}`,

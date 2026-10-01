@@ -108,8 +108,9 @@ async function createFinalOutput(run, outputs) {
   const goal = run.goal;
   const prompt = [
     "TASK: agent-final",
+    "Write all user-facing content in natural Vietnamese. Preserve names, facts, and recommendations from the supplied worker outputs; do not translate product or brand names. Keep the required JSON structure.",
     "Synthesize a concise final marketing brief from the supplied product, goal, and completed worker outputs. Ground all statements in the provided outputs; do not invent market facts or claim external data access.",
-    `PRODUCT: ${JSON.stringify(product)}`,
+    `PRODUCT: ${JSON.stringify(product).slice(0, 9000)}`,
     `GOAL: ${JSON.stringify(goal)}`,
     `COMPLETED WORKER OUTPUTS: ${JSON.stringify(outputs).slice(0, 12000)}`,
   ].join("\n\n");
