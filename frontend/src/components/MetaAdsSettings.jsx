@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Check, LoaderCircle, RefreshCw, Unplug } from "lucide-react";
+import MetaAdsBuilder from "./MetaAdsBuilder";
 
 const statusLabel = (status) => ({ PAUSED: "Đang tạm dừng", ACTIVE: "Đang hoạt động", FAILED: "Tạo thất bại", UNKNOWN: "Cần kiểm tra trên Meta", CREATING: "Đang tạo" })[status] || status;
 
@@ -143,6 +144,11 @@ export default function MetaAdsSettings({ request }) {
               {campaign.externalCampaignId && campaign.status === "PAUSED" && <button className="agentSecondary" disabled={busy} onClick={() => campaignAction(campaign, "resume")}>Launch Campaign</button>}
             </div>)}
           </div>
+          <MetaAdsBuilder
+            request={request}
+            campaigns={campaigns}
+            pageId={connection.page?.id}
+          />
         </>
       )}
       {notice && <p className="metaNotice" role="status">{notice}</p>}

@@ -25,6 +25,7 @@ const callToActions = [
   "SIGN_UP",
   "CONTACT_US",
   "DOWNLOAD",
+  "BOOK_TRAVEL",
   "GET_OFFER",
   "SUBSCRIBE",
 ];
@@ -275,15 +276,12 @@ export default function MetaAdsBuilder({ request, campaigns, pageId }) {
         </label>
         <button
           className="agentSecondary"
-          disabled={busy || !pageId || !adSetId}
+          disabled={busy || !pageId}
         >
           {busy ? <LoaderCircle className="spin" size={15} /> : null} Create
           Creative
         </button>
       </form>
-      {!adSetId && (
-        <p className="muted">Create an Ad Set before creating its Creative.</p>
-      )}
       {!pageId && (
         <p className="muted">
           Select a Facebook Page above before creating a creative.

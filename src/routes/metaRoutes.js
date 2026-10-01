@@ -122,6 +122,32 @@ router.post("/campaigns", async (req, res, next) => {
   }
 });
 
+router.post("/ad-creatives", async (req, res, next) => {
+  try {
+    const input = z.object({
+      name: z.string().trim().min(1).max(255),
+      pageId: z.string().regex(/^\d{1,40}$/),
+      message: z.string().trim().min(1).max(2000),
+      headline: z.string().trim().min(1).max(255),
+      linkUrl: z.string().url().max(2048),
+      callToAction: z.enum([
+        "LEARN_MORE",
+        "SHOP_NOW",
+        "SIGN_UP",
+        "CONTACT_US",
+        "DOWNLOAD",
+        "BOOK_TRAVEL",
+        "GET_OFFER",
+        "SUBSCRIBE",
+      ]),
+    }).strict().parse(req.body);
+    const data = await adsService.createAdCreative(req.user.sub, input);
+    res.status(201).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/campaigns", async (req, res, next) => {
   try {
     res.json({

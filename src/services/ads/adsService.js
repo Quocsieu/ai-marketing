@@ -71,6 +71,21 @@ async function getPages(userId) {
   return metaAdsProvider.getPages(accessToken);
 }
 
+async function createAdCreative(userId, input) {
+  const { connection, accessToken } = await getConnection(userId, { requireAccount: true });
+  if (!connection.pageId) throw error(400, "META_PAGE_REQUIRED", "Select a Facebook Page in Meta Settings before creating a creative.");
+  if (input.pageId !== connection.pageId) throw error(403, "META_PAGE_FORBIDDEN", "Creative Page must match the Page selected for this Meta connection.");
+  const pages = await metaAdsProvider.getPages(accessToken);
+  if (!pages.some((page) => page.id === input.pageId)) throw error(403, "META_PAGE_FORBIDDEN", "That Page is not available to the connected Meta user.");
+  const created = await metaAdsProvider.createAdCreative({
+    accessToken,
+    adAccountId: connection.adAccountId,
+    ...input,
+  });
+  if (!normalizeObjectId(created?.id)) throw error(502, "META_INVALID_CREATE_RESPONSE", "Meta did not return a valid creative id.");
+  return { id: String(created.id), pageId: connection.pageId, status: "CREATED" };
+}
+
 async function selectAssets(userId, input) {
   const { connection, accessToken } = await getConnection(userId);
   const [accounts, pages] = await Promise.all([
@@ -238,6 +253,7 @@ module.exports = {
   status,
   getAdAccounts,
   getPages,
+  createAdCreative,
   selectAssets,
   createCampaignSpecification,
   createCampaign,

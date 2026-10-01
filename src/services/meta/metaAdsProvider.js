@@ -107,6 +107,45 @@ class MetaAdsProvider {
     }));
   }
 
+  async createAdCreative({ accessToken, adAccountId, name, pageId, message, headline, linkUrl, callToAction }) {
+    const accountId = normalizeAdAccountId(adAccountId);
+    if (!accountId) throw Object.assign(new Error("Selected Meta ad account is invalid."), { status: 400, code: "META_INVALID_AD_ACCOUNT" });
+    if (!normalizeObjectId(pageId)) throw Object.assign(new Error("Facebook Page id is invalid."), { status: 400, code: "META_INVALID_PAGE_ID" });
+    const validateText = (value, field, maxLength) => {
+      if (typeof value !== "string" || !value.trim() || value.trim().length > maxLength) {
+        throw Object.assign(new Error(`${field} is invalid.`), { status: 400, code: "META_INVALID_INPUT" });
+      }
+      return value.trim();
+    };
+    const link = validateText(linkUrl, "Link URL", 2048);
+    let parsedLink;
+    try { parsedLink = new URL(link); } catch { /* checked below */ }
+    if (!parsedLink || parsedLink.protocol !== "https:") {
+      throw Object.assign(new Error("Creative link URL must use HTTPS."), { status: 400, code: "META_INVALID_LINK_URL" });
+    }
+    const allowedCallToActions = ["LEARN_MORE", "SHOP_NOW", "SIGN_UP", "CONTACT_US", "DOWNLOAD", "BOOK_TRAVEL", "GET_OFFER", "SUBSCRIBE"];
+    if (!allowedCallToActions.includes(callToAction)) {
+      throw Object.assign(new Error("Call to action is invalid."), { status: 400, code: "META_INVALID_CALL_TO_ACTION" });
+    }
+    const objectStorySpec = {
+      page_id: String(pageId),
+      link_data: {
+        link: parsedLink.toString(),
+        message: validateText(message, "Primary text", 2000),
+        name: validateText(headline, "Headline", 255),
+        call_to_action: { type: callToAction, value: { link: parsedLink.toString() } },
+      },
+    };
+    return this.request(`act_${accountId}/adcreatives`, {
+      method: "POST",
+      accessToken,
+      body: {
+        name: validateText(name, "Creative name", 255),
+        object_story_spec: JSON.stringify(objectStorySpec),
+      },
+    });
+  }
+
   async createCampaign({ accessToken, adAccountId, specification }) {
     const accountId = normalizeAdAccountId(adAccountId);
     if (!accountId) throw Object.assign(new Error("Selected Meta ad account is invalid."), { status: 400, code: "META_INVALID_AD_ACCOUNT" });
