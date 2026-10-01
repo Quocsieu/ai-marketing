@@ -37,7 +37,7 @@ class GeminiProvider {
         config: {
           responseMimeType: "application/json",
           responseJsonSchema: outputSchema,
-          maxOutputTokens: 4096,
+          maxOutputTokens: 8192,
           httpOptions: { timeout: 45000, headers: {} },
         },
       });
