@@ -29,6 +29,43 @@ const callToActions = [
   "GET_OFFER",
   "SUBSCRIBE",
 ];
+const countries = [
+  ["VN", "Vietnam"],
+  ["US", "United States"],
+  ["GB", "United Kingdom"],
+  ["SG", "Singapore"],
+  ["TH", "Thailand"],
+  ["MY", "Malaysia"],
+  ["ID", "Indonesia"],
+  ["PH", "Philippines"],
+  ["AU", "Australia"],
+  ["JP", "Japan"],
+  ["KR", "South Korea"],
+];
+
+function targetingValidationMessage(targeting) {
+  if (!targeting || typeof targeting !== "object" || Array.isArray(targeting)) {
+    return "Targeting must be a JSON object.";
+  }
+  if (!Number.isInteger(targeting.age_min) || !Number.isInteger(targeting.age_max)) {
+    return "Age Min and Age Max must be valid whole numbers.";
+  }
+  if (targeting.age_min > targeting.age_max) {
+    return "Age Min must be less than or equal to Age Max.";
+  }
+  const geo = targeting.geo_locations;
+  if (!geo || !Array.isArray(geo.countries) || !geo.countries.some((country) => typeof country === "string" && country.trim())) {
+    return "Select at least one country for your audience.";
+  }
+  const validLocationTypes = ["home", "recent"];
+  if (!Array.isArray(geo.location_types) || !geo.location_types.some((type) => validLocationTypes.includes(type))) {
+    return "Select at least one location type: Home or Recent.";
+  }
+  if (geo.location_types.some((type) => !validLocationTypes.includes(type))) {
+    return "Location Type can only contain Home and Recent.";
+  }
+  return "";
+}
 
 export default function MetaAdsBuilder({ request, campaigns, pageId, currency }) {
   const [campaignId, setCampaignId] = useState("");
@@ -39,7 +76,13 @@ export default function MetaAdsBuilder({ request, campaigns, pageId, currency })
   const [dailyBudget, setDailyBudget] = useState("");
   const [billingEvent, setBillingEvent] = useState("IMPRESSIONS");
   const [optimizationGoal, setOptimizationGoal] = useState("OFFSITE_CONVERSIONS");
-  const [targeting, setTargeting] = useState("");
+  const [ageMin, setAgeMin] = useState("18");
+  const [ageMax, setAgeMax] = useState("35");
+  const [country, setCountry] = useState("VN");
+  const [locationTypes, setLocationTypes] = useState(["home", "recent"]);
+  const [advancedTargeting, setAdvancedTargeting] = useState(false);
+  const [rawTargeting, setRawTargeting] = useState("");
+  const [targetingError, setTargetingError] = useState("");
   const [creativeName, setCreativeName] = useState("");
   const [message, setMessage] = useState("");
   const [headline, setHeadline] = useState("");
@@ -75,18 +118,29 @@ export default function MetaAdsBuilder({ request, campaigns, pageId, currency })
     console.log("CREATE AD SET CLICKED");
     event.preventDefault();
     let parsedTargeting;
-    try {
-      parsedTargeting = JSON.parse(targeting);
-      if (
-        !parsedTargeting ||
-        Array.isArray(parsedTargeting) ||
-        typeof parsedTargeting !== "object"
-      )
-        throw new Error();
-    } catch {
-      setError("Targeting must be a valid JSON object.");
+    if (advancedTargeting) {
+      try {
+        parsedTargeting = JSON.parse(rawTargeting);
+      } catch {
+        setTargetingError("Raw Targeting must contain valid JSON.");
+        return;
+      }
+    } else {
+      parsedTargeting = {
+        age_min: ageMin.trim() === "" ? Number.NaN : Number(ageMin),
+        age_max: ageMax.trim() === "" ? Number.NaN : Number(ageMax),
+        geo_locations: {
+          countries: country ? [country] : [],
+          location_types: locationTypes,
+        },
+      };
+    }
+    const validationMessage = targetingValidationMessage(parsedTargeting);
+    if (validationMessage) {
+      setTargetingError(validationMessage);
       return;
     }
+    setTargetingError("");
     console.log("SENDING CREATE AD SET:", {
       campaignId,
       name: adSetName,
@@ -212,16 +266,106 @@ export default function MetaAdsBuilder({ request, campaigns, pageId, currency })
             ))}
           </select>
         </label>
-        <label className="metaWideField">
-          Targeting JSON
-          <textarea
-            required
-            rows="4"
-            value={targeting}
-            onChange={(event) => setTargeting(event.target.value)}
-            placeholder="Enter Meta targeting JSON for your audience"
-          />
-        </label>
+        <div className="metaTargetingPanel">
+          <strong>Targeting</strong>
+          <div className="metaAgeRange">
+            <label>
+              Age Min
+              <input
+                type="number"
+                step="1"
+                value={ageMin}
+                onChange={(event) => {
+                  setAgeMin(event.target.value);
+                  setTargetingError("");
+                }}
+                disabled={advancedTargeting}
+              />
+            </label>
+            <span>to</span>
+            <label>
+              Age Max
+              <input
+                type="number"
+                step="1"
+                value={ageMax}
+                onChange={(event) => {
+                  setAgeMax(event.target.value);
+                  setTargetingError("");
+                }}
+                disabled={advancedTargeting}
+              />
+            </label>
+          </div>
+          <label>
+            Country
+            <select
+              value={country}
+              onChange={(event) => {
+                setCountry(event.target.value);
+                setTargetingError("");
+              }}
+              disabled={advancedTargeting}
+            >
+              <option value="">Select a country</option>
+              {countries.map(([code, name]) => (
+                <option value={code} key={code}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <span>Location Type</span>
+            <div className="metaLocationOptions">
+              {[["home", "Home"], ["recent", "Recent"]].map(([value, label]) => (
+                <label key={value}>
+                  <input
+                    type="checkbox"
+                    checked={locationTypes.includes(value)}
+                    disabled={advancedTargeting}
+                    onChange={(event) => {
+                      setLocationTypes((current) => event.target.checked
+                        ? [...current, value]
+                        : current.filter((type) => type !== value));
+                      setTargetingError("");
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <details
+            className="metaRawTargeting"
+            onToggle={(event) => {
+              const isOpen = event.currentTarget.open;
+              setAdvancedTargeting(isOpen);
+              setTargetingError("");
+              if (isOpen) {
+                setRawTargeting(JSON.stringify({
+                  age_min: ageMin.trim() === "" ? null : Number(ageMin),
+                  age_max: ageMax.trim() === "" ? null : Number(ageMax),
+                  geo_locations: {
+                    countries: country ? [country] : [],
+                    location_types: locationTypes,
+                  },
+                }, null, 2));
+              }
+            }}
+          >
+            <summary>Advanced / Raw Targeting</summary>
+            <p className="muted">Raw Targeting overrides the visual fields while this section is open.</p>
+            <textarea
+              rows="7"
+              value={rawTargeting}
+              onChange={(event) => {
+                setRawTargeting(event.target.value);
+                setTargetingError("");
+              }}
+              aria-label="Raw Targeting JSON"
+            />
+          </details>
+          {targetingError && <p className="error" role="alert">{targetingError}</p>}
+        </div>
         <p className="muted metaWideField">
           Campaigns created here already have a campaign-level daily budget.
           Leave this blank to use that budget; Meta does not allow setting both

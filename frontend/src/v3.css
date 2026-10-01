@@ -426,6 +426,59 @@ body {
 .metaAccountGrid select {
   width: 100%;
 }
+.metaTargetingPanel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  color: #59675e;
+  font-size: 14px;
+}
+.metaTargetingPanel input[type="number"],
+.metaTargetingPanel select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid #e3e9e4;
+  border-radius: 7px;
+  background: #fff;
+  color: #35443a;
+}
+.metaAgeRange {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 10px;
+}
+.metaLocationOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 7px;
+}
+.metaAccountGrid .metaLocationOptions label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.metaLocationOptions input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+.metaRawTargeting summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.metaRawTargeting textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 9px;
+  padding: 10px 11px;
+  border: 1px solid #e3e9e4;
+  border-radius: 7px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .metaScopeNote {
   margin: 12px 0;
   overflow-wrap: anywhere;
