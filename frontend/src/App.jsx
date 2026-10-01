@@ -164,7 +164,6 @@ function App() {
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/settings" element={<SettingsPage request={request} />} />
 
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         </Routes>
       </main>
     </div>
