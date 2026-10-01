@@ -14,6 +14,15 @@ class MetaAdsProvider {
     this.fetch = fetchImpl;
   }
 
+  async getPageInfo(accessToken, pageId) {
+  return this.request(String(pageId), {
+    accessToken,
+    query: {
+      fields: "id,name,is_published",
+    },
+  });
+}
+
   async request(path, { method = "GET", accessToken, query, body } = {}) {
     const { graphVersion } = getMetaConfig();
     const url = new URL(`https://graph.facebook.com/${graphVersion}/${path.replace(/^\/+/, "")}`);
@@ -98,14 +107,32 @@ class MetaAdsProvider {
     }));
   }
 
-  async getPages(accessToken) {
-    const pages = await this.getCollection("accounts", "id,name,category", accessToken);
-    return pages.filter((page) => normalizeObjectId(page.id)).map((page) => ({
-      id: page.id,
-      name: String(page.name || "Facebook Page").slice(0, 255),
-      category: String(page.category || "").slice(0, 100),
-    }));
-  }
+async getPages(accessToken) {
+  const pages = await this.getCollection(
+    "accounts",
+    "id,name,category,tasks,access_token",
+    accessToken
+  );
+
+console.log(
+  "META PAGES:",
+  pages.map((page) => ({
+    id: page.id,
+    name: page.name,
+    tasks: page.tasks,
+    hasAccessToken: Boolean(page.access_token),
+  }))
+);
+
+return pages
+  .filter((page) => normalizeObjectId(page.id))
+  .map((page) => ({
+    id: page.id,
+    name: String(page.name || "Facebook Page").slice(0, 255),
+    category: String(page.category || "").slice(0, 100),
+    accessToken: page.access_token,
+  }));
+}
 
   async createAdCreative({ accessToken, adAccountId, name, pageId, message, headline, linkUrl, callToAction }) {
     const accountId = normalizeAdAccountId(adAccountId);
@@ -136,12 +163,137 @@ class MetaAdsProvider {
         call_to_action: { type: callToAction, value: { link: parsedLink.toString() } },
       },
     };
+
+    console.log("META CREATIVE INPUT:", {
+  adAccountId: accountId,
+  pageId,
+  name,
+  linkUrl: parsedLink.toString(),
+  callToAction,
+  objectStorySpec,
+});
+
     return this.request(`act_${accountId}/adcreatives`, {
       method: "POST",
       accessToken,
       body: {
         name: validateText(name, "Creative name", 255),
         object_story_spec: JSON.stringify(objectStorySpec),
+      },
+    });
+  }
+
+  async createAdSet({
+    accessToken,
+    adAccountId,
+    campaignId,
+    name,
+    bidAmountMinor,
+    billingEvent,
+    optimizationGoal,
+    targeting,
+    status,
+  }) {
+    const accountId = normalizeAdAccountId(adAccountId);
+    if (!accountId) {
+      throw Object.assign(new Error("Selected Meta ad account is invalid."), {
+        status: 400,
+        code: "META_INVALID_AD_ACCOUNT",
+      });
+    }
+    const normalizedCampaignId = normalizeObjectId(campaignId);
+    if (!normalizedCampaignId) {
+      throw Object.assign(new Error("Meta campaign id is invalid."), {
+        status: 400,
+        code: "META_INVALID_CAMPAIGN_ID",
+      });
+    }
+    if (typeof name !== "string" || !name.trim() || name.trim().length > 255) {
+      throw Object.assign(new Error("Ad Set name is invalid."), {
+        status: 400,
+        code: "META_INVALID_INPUT",
+      });
+    }
+    if (!Number.isSafeInteger(bidAmountMinor) || bidAmountMinor <= 0) {
+      throw Object.assign(new Error("Bid amount is invalid."), {
+        status: 400,
+        code: "META_INVALID_BID_AMOUNT",
+      });
+    }
+    const billingEvents = [
+      "IMPRESSIONS",
+      "LINK_CLICKS",
+      "POST_ENGAGEMENT",
+      "VIDEO_VIEWS",
+      "LEAD_GENERATION",
+    ];
+    const optimizationGoals = [
+      "REACH",
+      "IMPRESSIONS",
+      "LINK_CLICKS",
+      "LANDING_PAGE_VIEWS",
+      "POST_ENGAGEMENT",
+      "VIDEO_VIEWS",
+      "LEAD_GENERATION",
+      "OFFSITE_CONVERSIONS",
+      "CONVERSATIONS",
+    ];
+    if (!billingEvents.includes(billingEvent)) {
+      throw Object.assign(new Error("Billing event is invalid."), {
+        status: 400,
+        code: "META_INVALID_BILLING_EVENT",
+      });
+    }
+    if (!optimizationGoals.includes(optimizationGoal)) {
+      throw Object.assign(new Error("Optimization goal is invalid."), {
+        status: 400,
+        code: "META_INVALID_OPTIMIZATION_GOAL",
+      });
+    }
+    if (
+      !targeting ||
+      typeof targeting !== "object" ||
+      Array.isArray(targeting) ||
+      Object.getPrototypeOf(targeting) !== Object.prototype
+    ) {
+      throw Object.assign(new Error("Targeting must be a JSON object."), {
+        status: 400,
+        code: "META_INVALID_TARGETING",
+      });
+    }
+    let serializedTargeting;
+    try {
+      serializedTargeting = JSON.stringify(targeting);
+    } catch {
+      throw Object.assign(new Error("Targeting must be valid JSON."), {
+        status: 400,
+        code: "META_INVALID_TARGETING",
+      });
+    }
+    if (!serializedTargeting || serializedTargeting === "{}" || serializedTargeting.length > 20000) {
+      throw Object.assign(new Error("Targeting must be a non-empty JSON object under 20 KB."), {
+        status: 400,
+        code: "META_INVALID_TARGETING",
+      });
+    }
+    if (status !== undefined && status !== "PAUSED") {
+      throw Object.assign(new Error("New Meta Ad Sets must be created paused."), {
+        status: 400,
+        code: "META_INVALID_RESOURCE_STATUS",
+      });
+    }
+
+    return this.request(`act_${accountId}/adsets`, {
+      method: "POST",
+      accessToken,
+      body: {
+        name: name.trim(),
+        campaign_id: normalizedCampaignId,
+        billing_event: billingEvent,
+        optimization_goal: optimizationGoal,
+        bid_amount: String(bidAmountMinor),
+        targeting: serializedTargeting,
+        status: "PAUSED",
       },
     });
   }
@@ -174,7 +326,9 @@ class MetaAdsProvider {
     if (!normalizeObjectId(campaignId)) throw Object.assign(new Error("Meta campaign id is invalid."), { status: 400, code: "META_INVALID_CAMPAIGN_ID" });
     return this.request(campaignId, {
       accessToken,
-      query: { fields: "id,name,objective,status,account_id" },
+      query: {
+        fields: "id,name,objective,status,account_id,bid_strategy,daily_budget,lifetime_budget,spend_cap",
+      },
     });
   }
 

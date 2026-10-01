@@ -148,6 +148,7 @@ export default function MetaAdsSettings({ request }) {
             request={request}
             campaigns={campaigns}
             pageId={connection.page?.id}
+            currency={connection.adAccount?.currency}
           />
         </>
       )}

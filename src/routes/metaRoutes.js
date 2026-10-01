@@ -148,6 +148,40 @@ router.post("/ad-creatives", async (req, res, next) => {
   }
 });
 
+router.post("/ad-sets", async (req, res, next) => {
+  try {
+    const input = z.object({
+      campaignId: z.string().regex(/^\d{1,40}$/),
+      name: z.string().trim().min(1).max(255),
+      bidAmount: z.number().finite().positive(),
+      billingEvent: z.enum([
+        "IMPRESSIONS",
+        "LINK_CLICKS",
+        "POST_ENGAGEMENT",
+        "VIDEO_VIEWS",
+        "LEAD_GENERATION",
+      ]),
+      optimizationGoal: z.enum([
+        "REACH",
+        "IMPRESSIONS",
+        "LINK_CLICKS",
+        "LANDING_PAGE_VIEWS",
+        "POST_ENGAGEMENT",
+        "VIDEO_VIEWS",
+        "LEAD_GENERATION",
+        "OFFSITE_CONVERSIONS",
+        "CONVERSATIONS",
+      ]),
+      targeting: z.record(z.unknown()),
+      status: z.literal("PAUSED").optional(),
+    }).strict().parse(req.body);
+    const data = await adsService.createAdSet(req.user.sub, input);
+    res.status(201).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/campaigns", async (req, res, next) => {
   try {
     res.json({

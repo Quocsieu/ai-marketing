@@ -30,11 +30,12 @@ const callToActions = [
   "SUBSCRIBE",
 ];
 
-export default function MetaAdsBuilder({ request, campaigns, pageId }) {
+export default function MetaAdsBuilder({ request, campaigns, pageId, currency }) {
   const [campaignId, setCampaignId] = useState("");
   const [adSetId, setAdSetId] = useState("");
   const [creativeId, setCreativeId] = useState("");
   const [adSetName, setAdSetName] = useState("");
+  const [bidAmount, setBidAmount] = useState("");
   const [dailyBudget, setDailyBudget] = useState("");
   const [billingEvent, setBillingEvent] = useState("IMPRESSIONS");
   const [optimizationGoal, setOptimizationGoal] = useState("OFFSITE_CONVERSIONS");
@@ -89,6 +90,7 @@ export default function MetaAdsBuilder({ request, campaigns, pageId }) {
     console.log("SENDING CREATE AD SET:", {
       campaignId,
       name: adSetName,
+      bidAmount: Number(bidAmount),
       billingEvent,
       optimizationGoal,
       targeting: parsedTargeting,
@@ -98,6 +100,7 @@ export default function MetaAdsBuilder({ request, campaigns, pageId }) {
       {
         campaignId,
         name: adSetName,
+        bidAmount: Number(bidAmount),
         billingEvent,
         optimizationGoal,
         targeting: parsedTargeting,
@@ -174,6 +177,17 @@ export default function MetaAdsBuilder({ request, campaigns, pageId }) {
             maxLength="255"
             value={adSetName}
             onChange={(event) => setAdSetName(event.target.value)}
+          />
+        </label>
+        <label>
+          Bid amount ({currency || "account currency"})
+          <input
+            required
+            type="number"
+            min="0.01"
+            step="any"
+            value={bidAmount}
+            onChange={(event) => setBidAmount(event.target.value)}
           />
         </label>
         <label>
