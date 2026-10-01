@@ -50,6 +50,14 @@ class GeminiProvider {
           },
         );
       }
+console.log("FINISH REASON:", response.candidates?.[0]?.finishReason);
+console.log("USAGE:", response.usageMetadata);
+
+console.log("GEMINI RAW RESPONSE:");
+console.log("MODEL:", model);
+console.log("LENGTH:", response.text.length);
+console.log(response.text);
+console.log("END GEMINI RESPONSE");
       return { model, output: response.text };
     } catch (error) {
       if (error.status && error.code) throw error;

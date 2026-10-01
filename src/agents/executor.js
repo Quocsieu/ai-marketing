@@ -212,6 +212,8 @@ async function executeAgentRun(runId, userId) {
         output: executed.output,
         retryCount: retries,
         remainingWorkers,
+        workerInstructions: worker.instructions,
+        evaluationCriteria: worker.evaluationCriteria,
       });
       await prisma.agentStep.update({
         where: { id: step.id },
