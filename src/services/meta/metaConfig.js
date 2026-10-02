@@ -11,6 +11,8 @@ function getMetaConfig() {
     appSecret: process.env.META_APP_SECRET,
     redirectUri: process.env.META_REDIRECT_URI,
     graphVersion: process.env.META_GRAPH_API_VERSION || "v26.0",
+    pixelId: process.env.META_PIXEL_ID,
+    conversionEvent: process.env.META_CONVERSION_EVENT,
   };
   if (!config.appId || !config.appSecret || !config.redirectUri || !process.env.META_TOKEN_ENCRYPTION_KEY) {
     throw Object.assign(new Error("Meta Ads is not configured on the server."), {

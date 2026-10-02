@@ -1,6 +1,7 @@
 const prisma = require("../../config/database");
 const { decryptToken } = require("../meta/tokenEncryption");
 const { MetaAdsProvider } = require("../meta/metaAdsProvider");
+const { getMetaConfig } = require("../meta/metaConfig");
 
 const metaAdsProvider = new MetaAdsProvider();
 const {
@@ -237,6 +238,32 @@ async function createAdSet(userId, input) {
       "Bid amount must be greater than zero.",
     );
 
+  let promotedObject;
+  if (
+    remoteCampaign.objective === "OUTCOME_SALES" &&
+    input.optimizationGoal === "OFFSITE_CONVERSIONS"
+  ) {
+    const { pixelId, conversionEvent } = getMetaConfig();
+    if (!normalizeObjectId(pixelId)) {
+      throw error(
+        503,
+        "META_PIXEL_NOT_CONFIGURED",
+        "Configure a valid META_PIXEL_ID before creating an offsite conversions Ad Set.",
+      );
+    }
+    if (conversionEvent !== "CONTENT_VIEW") {
+      throw error(
+        503,
+        "META_CONVERSION_EVENT_NOT_CONFIGURED",
+        "Configure META_CONVERSION_EVENT as CONTENT_VIEW for the current Meta Pixel setup.",
+      );
+    }
+    promotedObject = {
+      pixel_id: String(pixelId),
+      custom_event_type: conversionEvent,
+    };
+  }
+
   const created = await metaAdsProvider.createAdSet({
     accessToken,
     adAccountId: connection.adAccountId,
@@ -247,6 +274,7 @@ async function createAdSet(userId, input) {
     optimizationGoal: input.optimizationGoal,
     targeting: input.targeting,
     status: input.status,
+    ...(promotedObject ? { promotedObject } : {}),
   });
   if (!normalizeObjectId(created?.id)) {
     throw error(
