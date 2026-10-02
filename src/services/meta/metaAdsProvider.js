@@ -331,7 +331,31 @@ class MetaAdsProvider {
     }
     let serializedTargeting;
     try {
-      serializedTargeting = JSON.stringify(targeting);
+      const targetingAutomation = targeting.targeting_automation;
+      if (
+        targetingAutomation !== undefined &&
+        (!targetingAutomation ||
+          typeof targetingAutomation !== "object" ||
+          Array.isArray(targetingAutomation) ||
+          Object.getPrototypeOf(targetingAutomation) !== Object.prototype)
+      ) {
+        throw new Error("Invalid targeting automation.");
+      }
+      const advantageAudience = targetingAutomation?.advantage_audience;
+      if (
+        advantageAudience !== undefined &&
+        advantageAudience !== 0 &&
+        advantageAudience !== 1
+      ) {
+        throw new Error("Invalid Advantage audience flag.");
+      }
+      serializedTargeting = JSON.stringify({
+        ...targeting,
+        targeting_automation: {
+          ...targetingAutomation,
+          advantage_audience: advantageAudience ?? 0,
+        },
+      });
     } catch {
       throw Object.assign(new Error("Targeting must be valid JSON."), {
         status: 400,
