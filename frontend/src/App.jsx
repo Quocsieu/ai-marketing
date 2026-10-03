@@ -1,14 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Routes, Route, Link, useNavigate, useParams } from "react-router-dom";
+import { Routes, Route, Link, useParams } from "react-router-dom";
 import {
-  Bot,
-  LayoutDashboard,
   Users,
-  BriefcaseBusiness,
-  History,
-  ChartNoAxesCombined,
-  Settings,
-  LogOut,
   Sparkles,
   ArrowUpRight,
   LoaderCircle,
@@ -20,6 +13,9 @@ import {
 import AgentPage from "./pages/AgentPage";
 import { workerDescription, workerName } from "./utils/workerPresentation";
 import MetaAdsSettings from "./components/MetaAdsSettings";
+import AppLayout from "./components/layout/AppLayout";
+import AdsCenter from "./pages/ads/AdsCenter";
+import { EmptyState, Spinner, Table } from "./components/ui";
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 async function request(path, options = {}) {
   const token = localStorage.getItem("accessToken") || localStorage.getItem("token");
@@ -81,77 +77,10 @@ function App() {
       />
     );
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brandIcon">
-            <Sparkles size={19} />
-          </span>{" "}
-          MarketPilot<span className="brandAI">AI</span>
-        </div>
-        <div className="workspace">KHÔNG GIAN LÀM VIỆC</div>
-        <nav>
-          <Nav to="/" icon={<LayoutDashboard size={18} />} label="Tổng quan" />
-          <Nav
-            to="/context"
-            icon={<Users size={18} />}
-            label="Ngữ cảnh marketing"
-          />
-          <Nav
-            to="/agent"
-            icon={<Bot size={18} />}
-            label="AI Marketing Agent"
-          />
-          <Nav
-            to="/workers"
-            icon={<BriefcaseBusiness size={18} />}
-            label="Worker AI"
-          />
-          <Nav
-            to="/history"
-            icon={<History size={18} />}
-            label="Lịch sử thực thi"
-          />
-          <Nav
-            to="/analytics"
-            icon={<ChartNoAxesCombined size={18} />}
-            label="Phân tích"
-          />
-          <Nav to="/settings" icon={<Settings size={18} />} label="Cài đặt" />
-        </nav>
-        <div className="sideBottom">
-          <div className="planMini">
-            <div className="planDot" />
-            Gói M1 Starter <ArrowUpRight size={14} />
-          </div>
-          <button
-            className="logout"
-            onClick={() => {
-              localStorage.removeItem("accessToken"); localStorage.removeItem("token"); setUser(null);
-              setToken(null);
-            }}
-          >
-            <LogOut size={16} /> Đăng xuất
-          </button>
-        </div>
-      </aside>
-      <main className="main">
-        <header className="topbar">
-          <div>
-            <span className="crumb">Không gian làm việc</span>
-            <span className="slash"> / </span>
-            <span>Tổng quan marketing</span>
-          </div>
-          <div className="profile">
-            <div className="avatar">
-              {user?.name?.[0]?.toUpperCase() || "M"}
-            </div>
-            <div>
-              <strong>{user?.name || "Chào mừng"}</strong>
-              <small>Quản trị không gian làm việc</small>
-            </div>
-          </div>
-        </header>
+    <AppLayout user={user} onLogout={() => {
+      localStorage.removeItem("accessToken"); localStorage.removeItem("token"); setUser(null);
+      setToken(null);
+    }}>
         {error && <div className="error">{error}</div>}
         <Routes>
           <Route path="/" element={<Overview />} />
@@ -163,18 +92,10 @@ function App() {
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/settings" element={<SettingsPage request={request} />} />
+          <Route path="/meta-ads" element={<AdsCenter request={request} />} />
 
         </Routes>
-      </main>
-    </div>
-  );
-}
-function Nav({ to, icon, label }) {
-  return (
-    <Link className="navLink" to={to}>
-      {icon}
-      <span>{label}</span>
-    </Link>
+    </AppLayout>
   );
 }
 function statusLabel(status) {
@@ -345,7 +266,7 @@ function Overview() {
         />
         <Stat
           label="Worker khả dụng"
-          value={workers.filter((w) => w.available).length || "—"}
+          value={workers.filter((w) => w.available).length}
           note="Có trong gói của bạn"
         />
         <Stat
@@ -371,6 +292,17 @@ function Overview() {
             <WorkerCard key={w.slug} w={w} />
           ))}
       </div>
+      <section className="overview-activity">
+        <div className="sectionTitle">
+          <div><h2>Hoạt động gần đây</h2><p>Các lượt chạy AI mới nhất trong không gian làm việc.</p></div>
+          <Link to="/history" className="textLink">Xem lịch sử <ArrowUpRight size={15} /></Link>
+        </div>
+        {data?.recent?.length ? <Table columns={[
+          { key: "worker", label: "Worker" },
+          { key: "status", label: "Trạng thái", render: (value, row) => <span className={`status ${row.status.toLowerCase()}`}>{statusLabel(row.status)}</span> },
+          { key: "createdAt", label: "Thời gian" },
+        ]} data={data.recent.slice(0, 5).map((item) => ({ id: item.id, worker: item.workerSlug.replaceAll("-", " "), status: item.status, createdAt: new Date(item.createdAt).toLocaleString("vi-VN") }))} /> : <EmptyState title="Chưa có hoạt động gần đây" description="Lượt chạy Worker sẽ xuất hiện sau khi bạn tạo đề xuất đầu tiên." />}
+      </section>
       <div className="callout">
         <div className="calloutIcon">
           <Users size={19} />
@@ -414,9 +346,9 @@ function WorkerCard({ w }) {
 }
 function Workers() {
   const [list, setList] = useState([]),
-    [filter, setFilter] = useState("All");
+    [filter, setFilter] = useState("All"), [loading, setLoading] = useState(true), [error, setError] = useState("");
   useEffect(() => {
-    request("/workers").then(setList).catch(() => {});
+    request("/workers").then(setList).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, []);
   const shown = list.filter(
     (w) => filter === "All" || w.requiredPackage === filter,
@@ -439,7 +371,7 @@ function Workers() {
           </button>
         ))}
       </div>
-      <div className="workerGrid">
+      {error ? <div className="error" role="alert">{error}</div> : loading ? <div className="page-loading"><Spinner /> <span>Đang tải danh sách Worker…</span></div> : shown.length ? <div className="workerGrid">
         {shown.map((w) => (
           <div className={!w.available ? "locked" : ""} key={w.slug}>
             {w.available ? (
@@ -459,7 +391,7 @@ function Workers() {
             )}
           </div>
         ))}
-      </div>
+      </div> : <EmptyState title="Không tìm thấy Worker" description="Thử chọn một gói khác để xem các Worker hiện có." />}
     </>
   );
 }
@@ -617,22 +549,23 @@ function Context() {
   }, []);
   const fields = [
     ["businessName", "Tên doanh nghiệp"],
-    ["brandDescription", "Mô tả thương hiệu"],
+    ["industry", "Ngành hàng"],
+    ["location", "Địa điểm"],
+    ["website", "Trang web"],
     ["productService", "Sản phẩm hoặc dịch vụ"],
     ["productPrice", "Giá"],
+    ["uniqueSellingPoints", "Điểm bán hàng nổi bật"],
     ["targetMarket", "Thị trường mục tiêu"],
     ["targetCustomer", "Khách hàng mục tiêu"],
+    ["brandDescription", "Mô tả thương hiệu"],
     ["brandVoice", "Giọng điệu thương hiệu"],
     ["brandTone", "Sắc thái thương hiệu"],
     ["businessGoals", "Mục tiêu kinh doanh"],
     ["marketingGoals", "Mục tiêu marketing"],
-    ["uniqueSellingPoints", "Điểm bán hàng nổi bật"],
     ["competitors", "Đối thủ cạnh tranh (phân tách bằng dấu phẩy)"],
-    ["location", "Địa điểm"],
-    ["industry", "Ngành hàng"],
-    ["website", "Trang web"],
     ["additionalNotes", "Ghi chú bổ sung"],
   ];
+  const sectionStarts = { businessName: "Doanh nghiệp", productService: "Sản phẩm", targetMarket: "Khách hàng", brandDescription: "Thương hiệu", businessGoals: "Mục tiêu marketing" };
   async function save(e) {
     e.preventDefault();
     setBusy(true);
@@ -670,21 +603,10 @@ function Context() {
       <form className="panel contextForm" onSubmit={save}>
         <div className="formGrid">
           {fields.map(([key, label]) => (
+            <React.Fragment key={key}>
+            {sectionStarts[key] && <h2 className="context-section-title">{sectionStarts[key]}</h2>}
             <label
-              key={key}
-              className={
-                [
-                  "brandDescription",
-                  "targetMarket",
-                  "targetCustomer",
-                  "businessGoals",
-                  "marketingGoals",
-                  "uniqueSellingPoints",
-                  "additionalNotes",
-                ].includes(key)
-                  ? "wide"
-                  : ""
-              }
+              className={["brandDescription", "targetMarket", "targetCustomer", "businessGoals", "marketingGoals", "uniqueSellingPoints", "additionalNotes"].includes(key) ? "wide" : ""}
             >
               {label}
               {[
@@ -716,6 +638,7 @@ function Context() {
                 />
               )}
             </label>
+            </React.Fragment>
           ))}
         </div>
         <div className="saveRow">
@@ -734,10 +657,23 @@ function Context() {
   );
 }
 function HistoryPage() {
-  const [list, setList] = useState([]);
+  const [list, setList] = useState([]), [loading, setLoading] = useState(true), [error, setError] = useState("");
   useEffect(() => {
-    request("/workers/executions").then(setList).catch(() => {});
+    request("/workers/executions").then(setList).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, []);
+  const columns = [
+    { key: "worker", label: "Worker" },
+    { key: "status", label: "Trạng thái", render: (value, row) => <span className={`status ${row.status.toLowerCase()}`}>{statusLabel(row.status)}</span> },
+    { key: "createdAt", label: "Thời gian" },
+    { key: "duration", label: "Thời lượng" },
+  ];
+  const rows = list.map((item) => ({
+    id: item.id,
+    worker: item.workerSlug.replaceAll("-", " "),
+    status: item.status,
+    createdAt: new Date(item.createdAt).toLocaleString("vi-VN"),
+    duration: item.durationMs ? `${item.durationMs} ms` : "Chưa có dữ liệu",
+  }));
   return (
     <>
       <Heading
@@ -745,37 +681,14 @@ function HistoryPage() {
         title="Lịch sử thực thi"
         sub="Xem lại kết quả do các Worker marketing tạo ra."
       />
-      <div className="panel tablePanel">
-        <div className="tableHead">
-          <span>WORKER</span>
-          <span>TRẠNG THÁI</span>
-          <span>NGÀY</span>
-          <span>THỜI LƯỢNG</span>
-        </div>
-        {list.length ? (
-          list.map((x) => (
-            <div className="tableRow" key={x.id}>
-              <strong>{x.workerSlug.replaceAll("-", " ")}</strong>
-              <span className={"status " + x.status.toLowerCase()}>
-                {statusLabel(x.status)}
-              </span>
-              <span>{new Date(x.createdAt).toLocaleString("vi-VN")}</span>
-              <span>{x.durationMs ? `${x.durationMs} ms` : "Chưa có dữ liệu"}</span>
-            </div>
-          ))
-        ) : (
-          <div className="emptyResult">
-            Chưa có lượt thực thi. Hãy chạy Worker để xem hoạt động tại đây.
-          </div>
-        )}
-      </div>
+      {error ? <div className="error" role="alert">{error}</div> : loading ? <div className="page-loading"><Spinner /> <span>Đang tải lịch sử thực thi…</span></div> : rows.length ? <Table className="history-table" columns={columns} data={rows} /> : <EmptyState title="Chưa có lượt thực thi" description="Chạy Worker để xem hoạt động và kết quả tại đây." />}
     </>
   );
 }
 function Analytics() {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState("");
   useEffect(() => {
-    request("/analytics").then(setData).catch(() => {});
+    request("/analytics").then(setData).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, []);
   return (
     <>
@@ -806,21 +719,14 @@ function Analytics() {
           note="10 lượt chạy gần đây"
         />
       </div>
-      <div className="panel">
+      <section className="analytics-activity">
         <h2>Hoạt động gần đây</h2>
-        {data?.recent?.map((x) => (
-          <div className="activityRow" key={x.id}>
-            <span className="workerIcon">
-              <Sparkles size={15} />
-            </span>
-            <b>{x.workerSlug.replaceAll("-", " ")}</b>
-            <span className={"status " + x.status.toLowerCase()}>
-              {statusLabel(x.status)}
-            </span>
-            <small>{x.durationMs ? `${x.durationMs} ms` : ""}</small>
-          </div>
-        ))}
-      </div>
+        {error ? <div className="error" role="alert">{error}</div> : loading ? <div className="page-loading"><Spinner /> <span>Đang tải phân tích…</span></div> : data?.recent?.length ? <Table columns={[
+          { key: "worker", label: "Worker" },
+          { key: "status", label: "Trạng thái", render: (value, row) => <span className={`status ${row.status.toLowerCase()}`}>{statusLabel(row.status)}</span> },
+          { key: "duration", label: "Thời lượng" },
+        ]} data={data.recent.map((item) => ({ id: item.id, worker: item.workerSlug.replaceAll("-", " "), status: item.status, duration: item.durationMs ? `${item.durationMs} ms` : "Chưa có dữ liệu" }))} /> : <EmptyState title="Chưa có hoạt động gần đây" description="Các lượt thực thi Worker sẽ xuất hiện tại đây." />}
+      </section>
     </>
   );
 }

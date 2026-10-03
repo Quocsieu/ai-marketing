@@ -179,6 +179,7 @@ async function executeAgentRun(runId, userId) {
       });
       let executed;
       try {
+        console.log("AGENT: executing worker =", worker.slug);
         executed = await executeWorker({
           userId,
           workerSlug: worker.slug,
