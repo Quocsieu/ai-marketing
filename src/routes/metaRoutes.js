@@ -182,6 +182,24 @@ router.post("/ad-sets", async (req, res, next) => {
   }
 });
 
+router.post("/ads", async (req, res, next) => {
+  try {
+    const input = z
+      .object({
+        adSetId: z.string().regex(/^\d{1,40}$/),
+        creativeId: z.string().regex(/^\d{1,40}$/),
+        name: z.string().trim().min(1).max(255),
+        status: z.literal("PAUSED").optional(),
+      })
+      .strict()
+      .parse(req.body);
+    const data = await adsService.createAd(req.user.sub, input);
+    res.status(201).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/campaigns", async (req, res, next) => {
   try {
     res.json({

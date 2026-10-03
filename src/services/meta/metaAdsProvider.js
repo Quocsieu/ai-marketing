@@ -423,6 +423,88 @@ class MetaAdsProvider {
     });
   }
 
+  async getAdSet({ accessToken, adSetId }) {
+    const id = normalizeObjectId(adSetId);
+    if (!id) {
+      throw Object.assign(new Error("Meta Ad Set id is invalid."), {
+        status: 400,
+        code: "META_INVALID_AD_SET_ID",
+      });
+    }
+    return this.request(id, {
+      accessToken,
+      query: { fields: "id,account_id" },
+    });
+  }
+
+  async getAdCreative({ accessToken, creativeId }) {
+    const id = normalizeObjectId(creativeId);
+    if (!id) {
+      throw Object.assign(new Error("Meta Ad Creative id is invalid."), {
+        status: 400,
+        code: "META_INVALID_CREATIVE_ID",
+      });
+    }
+    return this.request(id, {
+      accessToken,
+      query: { fields: "id,account_id" },
+    });
+  }
+
+  async createAd({
+    accessToken,
+    adAccountId,
+    adSetId,
+    creativeId,
+    name,
+    status,
+  }) {
+    const accountId = normalizeAdAccountId(adAccountId);
+    if (!accountId) {
+      throw Object.assign(new Error("Selected Meta ad account is invalid."), {
+        status: 400,
+        code: "META_INVALID_AD_ACCOUNT",
+      });
+    }
+    const normalizedAdSetId = normalizeObjectId(adSetId);
+    if (!normalizedAdSetId) {
+      throw Object.assign(new Error("Meta Ad Set id is invalid."), {
+        status: 400,
+        code: "META_INVALID_AD_SET_ID",
+      });
+    }
+    const normalizedCreativeId = normalizeObjectId(creativeId);
+    if (!normalizedCreativeId) {
+      throw Object.assign(new Error("Meta Ad Creative id is invalid."), {
+        status: 400,
+        code: "META_INVALID_CREATIVE_ID",
+      });
+    }
+    if (typeof name !== "string" || !name.trim() || name.trim().length > 255) {
+      throw Object.assign(new Error("Ad name is invalid."), {
+        status: 400,
+        code: "META_INVALID_INPUT",
+      });
+    }
+    if (status !== undefined && status !== "PAUSED") {
+      throw Object.assign(new Error("New Meta Ads must be created paused."), {
+        status: 400,
+        code: "META_INVALID_RESOURCE_STATUS",
+      });
+    }
+
+    return this.request(`act_${accountId}/ads`, {
+      method: "POST",
+      accessToken,
+      body: {
+        name: name.trim(),
+        adset_id: normalizedAdSetId,
+        creative: JSON.stringify({ creative_id: normalizedCreativeId }),
+        status: "PAUSED",
+      },
+    });
+  }
+
   async createCampaign({ accessToken, adAccountId, specification }) {
     const accountId = normalizeAdAccountId(adAccountId);
     if (!accountId)

@@ -286,6 +286,80 @@ async function createAdSet(userId, input) {
   return { id: String(created.id), campaignId, status: "PAUSED" };
 }
 
+async function createAd(userId, input) {
+  const { connection, accessToken } = await getConnection(userId, {
+    requireAccount: true,
+  });
+  const adAccountId = normalizeAdAccountId(connection.adAccountId);
+  if (!adAccountId)
+    throw error(
+      400,
+      "META_INVALID_AD_ACCOUNT",
+      "Selected Meta ad account is invalid.",
+    );
+
+  const adSetId = normalizeObjectId(input.adSetId);
+  if (!adSetId)
+    throw error(400, "META_INVALID_AD_SET_ID", "Meta Ad Set id is invalid.");
+  const creativeId = normalizeObjectId(input.creativeId);
+  if (!creativeId)
+    throw error(
+      400,
+      "META_INVALID_CREATIVE_ID",
+      "Meta Ad Creative id is invalid.",
+    );
+  if (
+    typeof input.name !== "string" ||
+    !input.name.trim() ||
+    input.name.trim().length > 255
+  )
+    throw error(400, "META_INVALID_INPUT", "Ad name is invalid.");
+  if (input.status !== undefined && input.status !== "PAUSED")
+    throw error(
+      400,
+      "META_INVALID_RESOURCE_STATUS",
+      "New Meta Ads must be created paused.",
+    );
+
+  const [adSet, creative] = await Promise.all([
+    metaAdsProvider.getAdSet({ accessToken, adSetId }),
+    metaAdsProvider.getAdCreative({ accessToken, creativeId }),
+  ]);
+  if (normalizeAdAccountId(adSet.account_id) !== adAccountId)
+    throw error(
+      403,
+      "META_AD_SET_FORBIDDEN",
+      "This Ad Set is outside the selected ad account.",
+    );
+  if (normalizeAdAccountId(creative.account_id) !== adAccountId)
+    throw error(
+      403,
+      "META_CREATIVE_FORBIDDEN",
+      "This Ad Creative is outside the selected ad account.",
+    );
+
+  const created = await metaAdsProvider.createAd({
+    accessToken,
+    adAccountId,
+    adSetId,
+    creativeId,
+    name: input.name,
+    status: "PAUSED",
+  });
+  if (!normalizeObjectId(created?.id))
+    throw error(
+      502,
+      "META_INVALID_CREATE_RESPONSE",
+      "Meta did not return a valid Ad id.",
+    );
+  return {
+    id: String(created.id),
+    adSetId,
+    creativeId,
+    status: "PAUSED",
+  };
+}
+
 async function selectAssets(userId, input) {
   const { connection, accessToken } = await getConnection(userId);
   const [accounts, pages] = await Promise.all([
@@ -685,6 +759,7 @@ module.exports = {
   getPages,
   createAdCreative,
   createAdSet,
+  createAd,
   selectAssets,
   createCampaignSpecification,
   createCampaign,
