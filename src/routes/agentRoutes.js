@@ -1,6 +1,6 @@
 const express = require("express");
 const { requireAuth } = require("../middleware/auth");
-const { createPlan, runDetail, startRun } = require("../agents/marketingAgent");
+const { createPlan, runDetail, startRun, retryStep } = require("../agents/marketingAgent");
 const prisma = require("../config/database");
 
 const router = express.Router();
@@ -21,6 +21,16 @@ router.post("/run", async (req, res, next) => {
     if (typeof runId !== "string" || !runId) return res.status(400).json({ success: false, message: "runId is required" });
     const data = await startRun({ userId: req.user.sub, runId });
     res.status(202).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/steps/:stepId/retry", async (req, res, next) => {
+  try {
+    const { stepId } = req.params;
+    const data = await retryStep({ userId: req.user.sub, stepId });
+    res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }

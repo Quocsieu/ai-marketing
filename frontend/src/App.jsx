@@ -40,6 +40,10 @@ function localizeApiError(path, payload, status) {
   if (path === "/auth/login") return "Email hoặc mật khẩu chưa chính xác.";
   if (path === "/auth/register" && (status === 409 || payload.code === "P2002")) return "Email này đã được đăng ký. Hãy đăng nhập hoặc sử dụng email khác.";
   if (payload.code === "PACKAGE_CAPABILITY_REQUIRED" || payload.code === "SUBSCRIPTION_REQUIRED") return "Gói hiện tại chưa hỗ trợ Worker này. Hãy kiểm tra gói dịch vụ của bạn.";
+  if (payload.code === "AGENT_STEP_NOT_FOUND") return "Không tìm thấy bước cần thử lại.";
+  if (payload.code === "AGENT_STEP_FORBIDDEN") return "Bạn không có quyền thao tác trên bước này.";
+  if (payload.code === "AGENT_STEP_NOT_FAILED") return "Bước này không ở trạng thái thất bại.";
+  if (["STEP_ALREADY_RUNNING", "AGENT_RUN_STATE_CONFLICT"].includes(payload.code)) return "Bước hoặc lượt chạy này đang được thực hiện.";
   if (payload.code === "META_NOT_CONFIGURED") return "Meta Ads chưa được cấu hình trên máy chủ. Hãy liên hệ quản trị viên.";
   if (["META_REAUTH_REQUIRED", "META_NOT_CONNECTED"].includes(payload.code)) return "Hãy kết nối lại tài khoản Meta trong Cài đặt.";
   if (["META_AD_ACCOUNT_REQUIRED", "META_AD_ACCOUNT_FORBIDDEN", "META_PAGE_FORBIDDEN"].includes(payload.code)) return "Hãy chọn tài khoản quảng cáo hoặc Page mà tài khoản Meta của bạn có quyền truy cập.";

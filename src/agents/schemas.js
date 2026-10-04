@@ -33,6 +33,19 @@ const planSchema = z.object({
   reorderExplanation: z.string(),
 });
 
+const fullPlanSchema = z.object({
+  goal: z.string(),
+  steps: z.array(z.object({
+    workerSlug: z.string(),
+    reason: z.string(),
+    order: z.number().int().positive(),
+    dependsOn: z.array(z.string()),
+  })).min(1).max(71),
+  batches: z.array(z.any()).optional(),
+  orderChanged: z.boolean(),
+  reorderExplanation: z.string(),
+});
+
 const decisionSchema = z.object({
   decision: z.enum(["CONTINUE", "RETRY", "FINISH"]),
   reason: z.string().min(1),
@@ -71,4 +84,4 @@ const finalOutputJsonSchema = {
   },
 };
 
-module.exports = { productSchema, goalSchema, planSchema, decisionSchema, finalOutputSchema, planJsonSchema, decisionJsonSchema, finalOutputJsonSchema };
+module.exports = { productSchema, goalSchema, planSchema, fullPlanSchema, decisionSchema, finalOutputSchema, planJsonSchema, decisionJsonSchema, finalOutputJsonSchema };

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { workerDescription, workerName } from "../utils/workerPresentation";
 import MetaCampaignReview from "../components/MetaCampaignReview";
-import { ArrowLeft, ArrowRight, Bot, Check, Circle, LoaderCircle, Play, RefreshCw, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, Bot, Check, Circle, LoaderCircle, Play, RefreshCw, Sparkles } from "lucide-react";
 import "./agent.css";
 
 const emptyProduct = {
@@ -25,6 +25,7 @@ export default function AgentPage({ request }) {
   const [mode, setMode] = useState("form");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [retryingStepId, setRetryingStepId] = useState(null);
 
   const completed = useMemo(() => new Set((run?.steps || []).filter((step) => step.status === "SUCCEEDED").map((step) => step.workerSlug)), [run]);
 
@@ -62,6 +63,15 @@ export default function AgentPage({ request }) {
     setSelected((items) => items.includes(slug) ? items.filter((item) => item !== slug) : [...items, slug]);
   }
 
+  const allWorkersSelected = workers.length > 0 && workers.every((worker) => selected.includes(worker.slug));
+
+  function toggleAllWorkers() {
+    const workerSlugs = new Set(workers.map((worker) => worker.slug));
+    setSelected((items) => allWorkersSelected
+      ? items.filter((slug) => !workerSlugs.has(slug))
+      : [...new Set([...items, ...workerSlugs])]);
+  }
+
   async function createPlan(event) {
     event.preventDefault();
     setError(""); setBusy(true);
@@ -93,6 +103,31 @@ export default function AgentPage({ request }) {
       setMode("running");
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
+  }
+
+  async function handleRetryStep(stepId) {
+    if (!stepId || retryingStepId) return;
+    setError("");
+    setRetryingStepId(stepId);
+    try {
+      await request(`/agent/steps/${stepId}/retry`, { method: "POST" });
+      setRun((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          status: "RUNNING",
+          errorMessage: null,
+          steps: (current.steps || []).map((step) =>
+            step.id === stepId ? { ...step, status: "RUNNING", errorMessage: null } : step
+          ),
+        };
+      });
+      setMode("running");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRetryingStepId(null);
+    }
   }
 
   async function loadHistory(id) {
@@ -142,7 +177,7 @@ export default function AgentPage({ request }) {
         <div className="runInfoGrid"><div><small>SẢN PHẨM</small><strong>{run.productInput?.name || "—"}</strong></div><div><small>MỤC TIÊU</small><strong>{run.goal?.objective || "—"}</strong></div><div><small>WORKER ĐÃ CHỌN</small><strong>{run.selectedWorkers?.length || 0}</strong></div></div>
         <h3>Kế hoạch</h3><p className="runDetailReason">{plan?.reorderExplanation}</p>
         <div className="runDetailSteps">{plan?.steps?.map((step) => <div className="runDetailStep" key={step.workerSlug}><b>{step.order}. {workerName(workers.find((item) => item.slug === step.workerSlug) || {slug:step.workerSlug,name:step.workerSlug})}</b><span>{step.reason}</span>{step.dependsOn?.length > 0 && <small>Phụ thuộc: {step.dependsOn.map((slug) => { const dependency = workers.find((item) => item.slug === slug); return dependency ? workerName(dependency) : slug; }).join(", ")}</small>}</div>)}</div>
-        <h3>Các bước của Agent</h3>{run.steps?.length ? <div className="runDetailSteps">{run.steps.map((step) => <div className="runDetailStep" key={step.id}><b>{workerName(workers.find((item) => item.slug === step.workerSlug) || {slug:step.workerSlug,name:step.workerSlug})} · {({SUCCEEDED:"Hoàn thành",RUNNING:"Đang thực hiện",PENDING:"Chờ thực hiện",FAILED:"Thất bại"})[step.status] || step.status}</b><span>{step.reason}</span>{step.decision?.decision === "RETRY" && <small>Đã thử lại {step.retryCount || 0} lần · {step.decision.reason}</small>}{step.errorMessage && <small>Worker chưa hoàn thành; hãy kiểm tra cấu hình rồi thử lại.</small>}</div>)}</div> : <p className="muted">Các bước sẽ xuất hiện sau khi kế hoạch được duyệt và bắt đầu chạy.</p>}
+        <h3>Các bước của Agent</h3>{run.steps?.length ? <div className="runDetailSteps">{run.steps.map((step) => <div className="runDetailStep" key={step.id}><b>{workerName(workers.find((item) => item.slug === step.workerSlug) || {slug:step.workerSlug,name:step.workerSlug})} · {({SUCCEEDED:"Hoàn thành",RUNNING:"Đang thực hiện",PENDING:"Chờ thực hiện",FAILED:"Thất bại"})[step.status] || step.status}</b><span>{step.reason}</span>{step.decision?.decision === "RETRY" && <small>Đã thử lại {step.retryCount || 0} lần · {step.decision.reason}</small>}{step.errorMessage && <small>Worker chưa hoàn thành; hãy kiểm tra cấu hình rồi thử lại.</small>}{step.status === "FAILED" && <button type="button" className="agentStepRetryBtn" disabled={retryingStepId === step.id} onClick={() => handleRetryStep(step.id)}>{retryingStepId === step.id ? <><LoaderCircle className="spin" size={13}/> Đang thử lại…</> : <><RefreshCw size={13}/> Thử lại</>}</button>}</div>)}</div> : <p className="muted">Các bước sẽ xuất hiện sau khi kế hoạch được duyệt và bắt đầu chạy.</p>}
         <h3>Lượt thực thi Worker</h3>{run.steps?.some((step) => step.executions?.length) ? <div className="executionRecords">{run.steps.flatMap((step) => (step.executions || []).map((execution) => <div key={execution.id}><strong>{workerName(workers.find((item) => item.slug === step.workerSlug) || {slug:step.workerSlug,name:step.workerSlug})}</strong><span>{({SUCCEEDED:"Thành công",FAILED:"Thất bại",RUNNING:"Đang thực hiện",PENDING:"Chờ thực hiện"})[execution.status] || execution.status}</span><small>{execution.createdAt ? new Date(execution.createdAt).toLocaleString("vi-VN") : ""}{execution.durationMs ? ` · ${execution.durationMs} ms` : ""}</small></div>))}</div> : <p className="muted">Chưa có lượt thực thi Worker.</p>}
       </section>}
 
@@ -177,10 +212,10 @@ export default function AgentPage({ request }) {
         </div>
 
         <section className="panel agentPanel selectPanel">
-          <div className="agentSectionHead"><span className="agentIcon"><Check size={17}/></span><div><h2>3. Workers</h2><p>Agent lập kế hoạch với các Worker khả dụng trong gói của bạn.</p></div><span className="selectedCount">Đã chọn {selected.length}/8 Worker</span></div>
-          <div className="agentWorkerGrid">{workers.map((worker) => <label className={selected.includes(worker.slug) ? "agentWorkerChoice selected" : "agentWorkerChoice"} key={worker.slug}><input type="checkbox" checked={selected.includes(worker.slug)} disabled={!selected.includes(worker.slug) && selected.length >= 8} onChange={() => toggleWorker(worker.slug)}/><span><strong>{workerName(worker)}</strong><small>{workerDescription(worker)}</small></span><span className="workerTier">{worker.requiredPackage}</span></label>)}</div>
+          <div className="agentSectionHead"><span className="agentIcon"><Check size={17}/></span><div><h2>3. Workers</h2><p>Agent lập kế hoạch với các Worker khả dụng trong gói của bạn.</p></div><button type="button" className="agentSecondary" disabled={!workers.length} onClick={toggleAllWorkers}>{allWorkersSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}</button><span className="selectedCount">Đã chọn {selected.length}/{workers.length} Worker</span></div>
+          <div className="agentWorkerGrid">{workers.map((worker) => <label className={selected.includes(worker.slug) ? "agentWorkerChoice selected" : "agentWorkerChoice"} key={worker.slug}><input type="checkbox" checked={selected.includes(worker.slug)} onChange={() => toggleWorker(worker.slug)}/><span><strong>{workerName(worker)}</strong><small>{workerDescription(worker)}</small></span><span className="workerTier">{worker.requiredPackage}</span></label>)}</div>
           {!workers.length && <p className="muted">Đang tải danh sách Worker…</p>}
-          <div className="agentActions"><span className="muted">Chọn từ 1 đến 8 Worker. Kế hoạch sẽ giải thích nếu cần đổi thứ tự.</span><button className="primary" disabled={busy || !selected.length}>{busy ? <LoaderCircle className="spin" size={15}/> : <Sparkles size={15}/>} Lập kế hoạch</button></div>
+          <div className="agentActions"><span className="muted">Chọn một hoặc nhiều Worker. Kế hoạch sẽ giải thích nếu cần đổi thứ tự.</span><button className="primary" disabled={busy || !selected.length}>{busy ? <LoaderCircle className="spin" size={15}/> : <Sparkles size={15}/>} Lập kế hoạch</button></div>
         </section>
       </form>}
 
@@ -195,7 +230,7 @@ export default function AgentPage({ request }) {
 
       {(mode === "running" || mode === "failed") && <section className="panel runProgress">
         <div className="agentSectionHead"><span className="agentIcon"><Bot size={17}/></span><div><h2>{mode === "failed" ? "Agent đã dừng" : "5. Đang thực thi"}</h2><p>{mode === "failed" ? "Lượt chạy chưa thể hoàn thành. Vui lòng thử lại sau." : "Các Worker đang chạy theo thứ tự đã duyệt; kết quả sẽ được dùng cho bước tiếp theo."}</p></div>{mode === "running" && <LoaderCircle className="spin progressSpinner" size={20}/>}</div>
-        <div className="planTimeline">{plan?.steps?.map((step) => { const state = run?.steps?.find((item) => item.workerSlug === step.workerSlug); const done = completed.has(step.workerSlug); const retrying = state?.decision?.decision === "RETRY" && !done; const working = state?.status === "RUNNING"; const worker = workers.find((item) => item.slug === step.workerSlug); return <div className="planItem runItem" key={step.workerSlug}><span className={done ? "runCheck done" : working ? "runCheck working" : "runCheck"}>{done ? <Check size={14}/> : working ? <LoaderCircle className="spin" size={14}/> : <Circle size={14}/>}</span><div><strong>{worker ? workerName(worker) : step.workerSlug}</strong><p>{retrying ? `Đang thử lại lần ${Math.max(1, state.retryCount || 0)}/1` : working ? "Đang tạo và đánh giá kết quả…" : state?.status === "FAILED" ? "Worker chưa thể hoàn thành." : done ? "Hoàn thành" : "Chờ thực hiện"}</p></div></div>; })}</div>
+        <div className="planTimeline">{plan?.steps?.map((step) => { const state = run?.steps?.find((item) => item.workerSlug === step.workerSlug); const done = completed.has(step.workerSlug); const retrying = state?.decision?.decision === "RETRY" && !done; const working = state?.status === "RUNNING"; const failed = state?.status === "FAILED"; const worker = workers.find((item) => item.slug === step.workerSlug); return <div className="planItem runItem" key={step.workerSlug}><span className={failed ? "runCheck failed" : done ? "runCheck done" : working ? "runCheck working" : "runCheck"}>{failed ? <AlertCircle size={14}/> : done ? <Check size={14}/> : working ? <LoaderCircle className="spin" size={14}/> : <Circle size={14}/>}</span><div><strong>{worker ? workerName(worker) : step.workerSlug}</strong><p>{retrying ? `Đang thử lại lần ${Math.max(1, state.retryCount || 0)}/1` : working ? "Đang tạo và đánh giá kết quả…" : failed ? "Worker chưa thể hoàn thành." : done ? "Hoàn thành" : "Chờ thực hiện"}</p>{failed && state?.id && <button type="button" className="agentStepRetryBtn" disabled={retryingStepId === state.id} onClick={() => handleRetryStep(state.id)}>{retryingStepId === state.id ? <><LoaderCircle className="spin" size={13}/> Đang thử lại…</> : <><RefreshCw size={13}/> Thử lại</>}</button>}</div></div>; })}</div>
         {mode === "failed" && <div className="agentActions"><button className="agentSecondary" onClick={reset}>Tạo lượt chạy mới</button></div>}
       </section>}
 

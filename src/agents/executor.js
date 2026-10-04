@@ -1,11 +1,13 @@
 const prisma = require("../config/database");
-const { executeWorker } = require("../services/workers/executeWorker");
-const { evaluateStep } = require("./evaluator");
+const workerService = require("../services/workers/executeWorker");
+const evaluator = require("./evaluator");
 const aiService = require("../services/ai/aiService");
 const { finalOutputSchema, finalOutputJsonSchema } = require("./schemas");
 const workerRegistry = require("../workers");
 
-const MAX_AGENT_STEPS = 8;
+const MAX_BATCH_STEPS = 8;
+const MAX_TOTAL_STEPS = 71;
+const MAX_AGENT_STEPS = MAX_BATCH_STEPS;
 const MAX_RETRIES_PER_WORKER = 1;
 
 function workerInput(product, goal, context, step) {
@@ -132,14 +134,21 @@ async function createFinalOutput(run, outputs) {
     console.error("CAUSE:", error.cause?.message);
     throw error;
   }
-  return result.output;
+  const generated = result.output;
+  return {
+    ...generated,
+    workerOutputs: outputs.map((item) => {
+      const matched = (generated.workerOutputs || []).find((g) => g.workerSlug === item.workerSlug);
+      return matched || item;
+    }),
+  };
 }
 
 async function executeAgentRun(runId, userId) {
   const run = await prisma.agentRun.findFirst({ where: { id: runId, userId } });
   if (!run || run.status !== "RUNNING") return;
   const plan = run.plan;
-  if (!plan?.steps?.length || plan.steps.length > MAX_AGENT_STEPS) {
+  if (!plan?.steps?.length || plan.steps.length > MAX_TOTAL_STEPS) {
     throw new Error("Agent plan is empty or exceeds the configured step limit");
   }
 
@@ -151,100 +160,137 @@ async function executeAgentRun(runId, userId) {
   const outputs = [];
   const previousResults = {};
 
-  for (let index = 0; index < plan.steps.length; index += 1) {
-    const planStep = plan.steps[index];
-    const worker = workerRegistry.find(
-      (item) => item.slug === planStep.workerSlug,
-    );
-    if (!worker)
-      throw new Error(
-        "A planned worker is no longer available in the registry",
-      );
-    const input = workerInput(product, goal, context, planStep);
-    const step = await prisma.agentStep.create({
-      data: {
-        agentRunId: runId,
-        workerSlug: worker.slug,
-        stepOrder: planStep.order,
-        status: "PENDING",
-        input,
-        reason: planStep.reason,
-      },
-    });
-    let retries = 0;
-    while (true) {
-      await prisma.agentStep.update({
-        where: { id: step.id },
-        data: { status: "RUNNING", startedAt: new Date(), errorMessage: null },
+  const existingSteps = await prisma.agentStep.findMany({
+    where: { agentRunId: runId },
+    orderBy: { stepOrder: "asc" },
+  });
+
+  for (const s of existingSteps) {
+    if (s.status === "SUCCEEDED" && s.output) {
+      previousResults[s.workerSlug] = s.output;
+      const worker = workerRegistry.find((item) => item.slug === s.workerSlug);
+      outputs.push({
+        workerSlug: s.workerSlug,
+        workerName: worker ? worker.name : s.workerSlug,
+        output: s.output,
       });
-      let executed;
-      try {
-        console.log("AGENT: executing worker =", worker.slug);
-        executed = await executeWorker({
-          userId,
-          workerSlug: worker.slug,
-          input,
-          agentStepId: step.id,
-          agentContext: {
-            ...compactAgentInput(product, goal),
-            previousWorkerResults: compactPreviousResults(previousResults),
+    }
+  }
+
+  const batches = plan.batches && plan.batches.length > 0
+    ? plan.batches
+    : [{ batchNumber: 1, steps: plan.steps }];
+
+  for (const batch of batches) {
+    if (batch.steps.length > MAX_BATCH_STEPS) {
+      throw new Error(`Batch exceeds maximum step limit of ${MAX_BATCH_STEPS}`);
+    }
+    for (let bIndex = 0; bIndex < batch.steps.length; bIndex += 1) {
+      const planStep = batch.steps[bIndex];
+      const worker = workerRegistry.find(
+        (item) => item.slug === planStep.workerSlug,
+      );
+      if (!worker)
+        throw new Error(
+          "A planned worker is no longer available in the registry",
+        );
+
+      const existingStep = existingSteps.find(
+        (s) => s.stepOrder === planStep.order,
+      );
+      if (existingStep && existingStep.status === "SUCCEEDED") {
+        continue;
+      }
+
+      const input = existingStep?.input || workerInput(product, goal, context, planStep);
+      let step = existingStep;
+      if (!step) {
+        step = await prisma.agentStep.create({
+          data: {
+            agentRunId: runId,
+            workerSlug: worker.slug,
+            stepOrder: planStep.order,
+            status: "PENDING",
+            input,
+            reason: planStep.reason,
           },
         });
-      } catch (error) {
+      }
+      let retries = 0;
+      while (true) {
+        await prisma.agentStep.update({
+          where: { id: step.id },
+          data: { status: "RUNNING", startedAt: new Date(), errorMessage: null },
+        });
+        let executed;
+        try {
+          console.log("AGENT: executing worker =", worker.slug);
+          executed = await workerService.executeWorker({
+            userId,
+            workerSlug: worker.slug,
+            input,
+            agentStepId: step.id,
+            agentContext: {
+              ...compactAgentInput(product, goal),
+              previousWorkerResults: compactPreviousResults(previousResults),
+            },
+          });
+        } catch (error) {
+          await prisma.agentStep.update({
+            where: { id: step.id },
+            data: {
+              status: "FAILED",
+              errorMessage: error.message,
+              completedAt: new Date(),
+            },
+          });
+          throw error;
+        }
+        const remainingWorkers = plan.steps
+          .filter((item) => item.order > planStep.order)
+          .map((item) => item.workerSlug);
+        const decision = await evaluator.evaluateStep({
+          step: {
+            workerSlug: worker.slug,
+            reason: planStep.reason,
+            order: planStep.order,
+          },
+          output: executed.output,
+          retryCount: retries,
+          remainingWorkers,
+          workerInstructions: worker.instructions,
+          evaluationCriteria: worker.evaluationCriteria,
+        });
         await prisma.agentStep.update({
           where: { id: step.id },
           data: {
-            status: "FAILED",
-            errorMessage: error.message,
-            completedAt: new Date(),
+            output: executed.output,
+            decision,
+            retryCount: retries,
+            status: decision.decision === "RETRY" ? "PENDING" : "SUCCEEDED",
+            completedAt: decision.decision === "RETRY" ? null : new Date(),
           },
         });
-        throw error;
-      }
-      const remainingWorkers = plan.steps
-        .slice(index + 1)
-        .map((item) => item.workerSlug);
-      const decision = await evaluateStep({
-        step: {
-          workerSlug: worker.slug,
-          reason: planStep.reason,
-          order: planStep.order,
-        },
-        output: executed.output,
-        retryCount: retries,
-        remainingWorkers,
-        workerInstructions: worker.instructions,
-        evaluationCriteria: worker.evaluationCriteria,
-      });
-      await prisma.agentStep.update({
-        where: { id: step.id },
-        data: {
-          output: executed.output,
-          decision,
-          retryCount: retries,
-          status: decision.decision === "RETRY" ? "PENDING" : "SUCCEEDED",
-          completedAt: decision.decision === "RETRY" ? null : new Date(),
-        },
-      });
-      if (decision.decision === "RETRY") {
-        if (retries >= MAX_RETRIES_PER_WORKER) {
-          throw Object.assign(
-            new Error(
-              `Worker ${worker.name} remained insufficient after ${MAX_RETRIES_PER_WORKER} retry`,
-            ),
-            { code: "AGENT_RETRY_LIMIT" },
-          );
+        if (decision.decision === "RETRY") {
+          if (retries >= MAX_RETRIES_PER_WORKER) {
+            throw Object.assign(
+              new Error(
+                `Worker ${worker.name} remained insufficient after ${MAX_RETRIES_PER_WORKER} retry`,
+              ),
+              { code: "AGENT_RETRY_LIMIT" },
+            );
+          }
+          retries += 1;
+          continue;
         }
-        retries += 1;
-        continue;
+        previousResults[worker.slug] = executed.output;
+        outputs.push({
+          workerSlug: worker.slug,
+          workerName: worker.name,
+          output: executed.output,
+        });
+        break;
       }
-      previousResults[worker.slug] = executed.output;
-      outputs.push({
-        workerSlug: worker.slug,
-        workerName: worker.name,
-        output: executed.output,
-      });
-      break;
     }
   }
 
@@ -262,4 +308,10 @@ async function executeAgentRun(runId, userId) {
   });
 }
 
-module.exports = { executeAgentRun, MAX_AGENT_STEPS, MAX_RETRIES_PER_WORKER };
+module.exports = {
+  executeAgentRun,
+  MAX_AGENT_STEPS,
+  MAX_BATCH_STEPS,
+  MAX_TOTAL_STEPS,
+  MAX_RETRIES_PER_WORKER,
+};

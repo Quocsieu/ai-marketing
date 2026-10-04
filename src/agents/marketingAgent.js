@@ -2,14 +2,14 @@ const { z } = require("zod");
 const prisma = require("../config/database");
 const registry = require("../workers");
 const planner = require("./planner");
-const { executeAgentRun, MAX_AGENT_STEPS } = require("./executor");
+const { executeAgentRun, MAX_AGENT_STEPS, MAX_TOTAL_STEPS } = require("./executor");
 const { productSchema, goalSchema } = require("./schemas");
 const { getActiveSubscription, canUseWorker } = require("../services/workers/executeWorker");
 
 const planRequestSchema = z.object({
   product: productSchema,
   marketingGoal: goalSchema,
-  selectedWorkers: z.array(z.string().min(1)).min(1).max(MAX_AGENT_STEPS),
+  selectedWorkers: z.array(z.string().min(1)).min(1).max(MAX_TOTAL_STEPS || 71),
 });
 
 async function createPlan({ userId, body }) {
@@ -108,4 +108,106 @@ async function startRun({ userId, runId }) {
   return { id: runId, status: "RUNNING" };
 }
 
-module.exports = { createPlan, runDetail, startRun, planRequestSchema };
+async function retryStep({ userId, stepId }) {
+  const step = await prisma.agentStep.findUnique({
+    where: { id: stepId },
+    include: { agentRun: true },
+  });
+  if (!step) {
+    throw Object.assign(new Error("Agent step not found"), {
+      status: 404,
+      code: "AGENT_STEP_NOT_FOUND",
+    });
+  }
+  if (step.agentRun.userId !== userId) {
+    throw Object.assign(new Error("You do not have access to this step"), {
+      status: 403,
+      code: "AGENT_STEP_FORBIDDEN",
+    });
+  }
+  if (step.status !== "FAILED") {
+    throw Object.assign(new Error("Only failed steps can be retried"), {
+      status: 400,
+      code: "AGENT_STEP_NOT_FAILED",
+    });
+  }
+  if (step.agentRun.status === "RUNNING") {
+    throw Object.assign(new Error("The Agent run is currently running"), {
+      status: 409,
+      code: "AGENT_RUN_STATE_CONFLICT",
+    });
+  }
+
+  const subscription = await getActiveSubscription(userId);
+  if (!subscription) {
+    throw Object.assign(new Error("An active subscription is required"), {
+      status: 403,
+      code: "SUBSCRIPTION_REQUIRED",
+    });
+  }
+  const worker = registry.find((item) => item.slug === step.workerSlug);
+  if (!worker || !canUseWorker(subscription, worker)) {
+    throw Object.assign(
+      new Error("Your package does not include this worker"),
+      { status: 403, code: "PACKAGE_CAPABILITY_REQUIRED" },
+    );
+  }
+
+  const updated = await prisma.agentStep.updateMany({
+    where: { id: stepId, status: "FAILED" },
+    data: {
+      status: "RUNNING",
+      startedAt: new Date(),
+      errorMessage: null,
+    },
+  });
+  if (!updated.count) {
+    throw Object.assign(new Error("Step is already running or being retried"), {
+      status: 409,
+      code: "STEP_ALREADY_RUNNING",
+    });
+  }
+
+  await prisma.agentRun.update({
+    where: { id: step.agentRunId },
+    data: { status: "RUNNING", errorMessage: null },
+  });
+
+  const runId = step.agentRunId;
+  setImmediate(async () => {
+    try {
+      await executeAgentRun(runId, userId);
+    } catch (error) {
+      const message =
+        error.status && error.status < 500
+          ? error.message
+          : error.code === "AI_PROVIDER_NOT_CONFIGURED" ||
+              error.code === "AI_MODEL_NOT_CONFIGURED"
+            ? error.message
+            : "The Agent run failed while executing or evaluating a worker.";
+      await prisma
+        .$transaction([
+          prisma.agentStep.updateMany({
+            where: {
+              agentRunId: runId,
+              status: { in: ["PENDING", "RUNNING"] },
+            },
+            data: {
+              status: "FAILED",
+              errorMessage: message,
+              completedAt: new Date(),
+            },
+          }),
+          prisma.agentRun.update({
+            where: { id: runId },
+            data: { status: "FAILED", errorMessage: message },
+          }),
+        ])
+        .catch(() => {});
+    }
+  });
+
+  return { id: stepId, agentRunId: runId, status: "RUNNING" };
+}
+
+module.exports = { createPlan, runDetail, startRun, retryStep, planRequestSchema };
