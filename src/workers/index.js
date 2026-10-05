@@ -8,6 +8,8 @@ const common = z
   .strict();
 const aiService = require("../services/ai/aiService");
 const catalog = require("./catalog/workers");
+const { isTypeBWorker, executeTypeBWorker } = require("./typeBWorkerWiring");
+const { isTypeCWorker, executeTypeCWorker } = require("./typeCWorkerWiring");
 const slugify = (value) =>
   value
     .toLowerCase()
@@ -16,7 +18,13 @@ const slugify = (value) =>
 module.exports = catalog.map((worker) => ({
   ...worker,
   inputSchema: common,
-  async execute({ context, input, agentContext }) {
+  async execute({ context, input, agentContext, userId, options }) {
+    if (isTypeBWorker(worker.slug)) {
+      return executeTypeBWorker({ worker, context, input, agentContext, userId, options });
+    }
+    if (isTypeCWorker(worker.slug)) {
+      return executeTypeCWorker({ worker, context, input, agentContext, userId, options });
+    }
     const contextText = context
       ? Object.entries(context)
           .filter(
