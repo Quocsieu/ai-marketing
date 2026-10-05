@@ -538,7 +538,7 @@ describe("Phase 2.7+ Batch B2: Type B Worker Wiring Suite", () => {
   // ========================================================
   // 6. Complete Catalog Routing Audit: 6 Type B, 65 Non-Type B
   // ========================================================
-  test("8. Complete Catalog Routing Audit: exactly 7 Type B workers (3 B1 + 3 B2 + 1 B3) and 64 generic workers", () => {
+  test("8. Complete Catalog Routing Audit: exactly 8 Type B workers (3 B1 + 3 B2 + 1 B3 + 1 B4) and 63 generic workers", () => {
     assert.equal(workers.length, 71, "Catalog must have exactly 71 workers");
 
     const expectedB1 = ["analytics-ceo-dashboard", "cac-roas-funnel-analytics", "monthly-ceo-strategy-report"];
@@ -555,11 +555,11 @@ describe("Phase 2.7+ Batch B2: Type B Worker Wiring Suite", () => {
     assert.equal(actualB2.length, 3, "Exactly 3 B2 workers");
     assert.deepEqual(actualB2.sort(), expectedB2.sort());
 
-    assert.equal(actualTypeB.length, 7, "Exactly 7 Type B workers in total");
-    assert.equal(nonTypeB.length, 64, "Exactly 64 remaining workers on standard generic path");
+    assert.equal(actualTypeB.length, 8, "Exactly 8 Type B workers in total");
+    assert.equal(nonTypeB.length, 63, "Exactly 63 remaining workers on standard generic path");
 
-    // Unexpected routed must be 0 (excluding known B1, B2, and B3 funnel-drop-off-analyst)
-    const unexpectedRouted = actualTypeB.filter((slug) => !expectedB1.includes(slug) && !expectedB2.includes(slug) && slug !== "funnel-drop-off-analyst");
+    // Unexpected routed must be 0 (excluding known B1, B2, B3 funnel-drop-off-analyst, and B4 ai-worker-kpi-tracking)
+    const unexpectedRouted = actualTypeB.filter((slug) => !expectedB1.includes(slug) && !expectedB2.includes(slug) && slug !== "funnel-drop-off-analyst" && slug !== "ai-worker-kpi-tracking");
     assert.equal(unexpectedRouted.length, 0, "Zero unexpected workers routed to Type B");
   });
 

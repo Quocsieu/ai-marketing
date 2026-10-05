@@ -4,6 +4,7 @@ const marketingContributionService = require("../services/marketing/marketingCon
 const kpiEvaluationService = require("../services/marketing/kpiEvaluationService");
 const marketingAlertService = require("../services/marketing/marketingAlertService");
 const funnelDropOffService = require("../services/marketing/funnelDropOffService");
+const workerKpiService = require("../services/marketing/workerKpiService");
 const aiService = require("../services/ai/aiService");
 
 const BATCH_B1_SLUGS = Object.freeze({
@@ -22,6 +23,10 @@ const BATCH_B3_SLUGS = Object.freeze({
   FUNNEL_DROP_OFF_ANALYST: "funnel-drop-off-analyst",
 });
 
+const BATCH_B4_SLUGS = Object.freeze({
+  AI_WORKER_KPI_TRACKING: "ai-worker-kpi-tracking",
+});
+
 function isBatchB1Worker(slug) {
   return Object.values(BATCH_B1_SLUGS).includes(slug);
 }
@@ -34,8 +39,12 @@ function isBatchB3Worker(slug) {
   return Object.values(BATCH_B3_SLUGS).includes(slug);
 }
 
+function isBatchB4Worker(slug) {
+  return Object.values(BATCH_B4_SLUGS).includes(slug);
+}
+
 function isTypeBWorker(slug) {
-  return isBatchB1Worker(slug) || isBatchB2Worker(slug) || isBatchB3Worker(slug);
+  return isBatchB1Worker(slug) || isBatchB2Worker(slug) || isBatchB3Worker(slug) || isBatchB4Worker(slug);
 }
 
 function formatUtcDate(date) {
@@ -493,7 +502,20 @@ async function loadBatchB3Data(workerSlug, userId, options = {}) {
 }
 
 /**
- * Loads user-scoped real marketing data for any Type B worker (Batch B1, B2, or B3).
+ * Loads user-scoped execution telemetry data for Batch B4 workers (Worker #71 AI Worker KPI Tracking).
+ */
+async function loadBatchB4Data(workerSlug, userId, options = {}) {
+  if (workerSlug === BATCH_B4_SLUGS.AI_WORKER_KPI_TRACKING) {
+    return workerKpiService.getWorkerKpis(userId, options);
+  }
+  throw Object.assign(new Error(`Worker ${workerSlug} is not a supported Batch B4 worker`), {
+    status: 400,
+    code: "INVALID_BATCH_B4_WORKER",
+  });
+}
+
+/**
+ * Loads user-scoped real marketing data for any Type B worker (Batch B1, B2, B3, or B4).
  */
 async function loadTypeBData(slug, userId, options = {}) {
   if (isBatchB1Worker(slug)) {
@@ -504,6 +526,9 @@ async function loadTypeBData(slug, userId, options = {}) {
   }
   if (isBatchB3Worker(slug)) {
     return loadBatchB3Data(slug, userId, options);
+  }
+  if (isBatchB4Worker(slug)) {
+    return loadBatchB4Data(slug, userId, options);
   }
   throw Object.assign(new Error(`Worker ${slug} is not a supported Type B worker`), {
     status: 400,
@@ -577,6 +602,17 @@ function getWorkerSpecificPromptInstructions(slug) {
 - FORBIDDEN: Do NOT make causal claims (e.g. "the checkout button is broken" or "page speed caused the drop"). Use observational phrasing ("the largest observed drop occurred between Clicks and Conversions").
 - If conversion data shows a view-through discrepancy (conversions > clicks), note this as a multi-conversion or view-through attribution factor.
 - If data is empty or zero, clearly state that no funnel activity has been recorded for the period and provide setup recommendations.`;
+
+    case BATCH_B4_SLUGS.AI_WORKER_KPI_TRACKING:
+      return `WORKER SPECIFIC INSTRUCTIONS (AI Worker KPI Tracking):
+- Analyze the internal AI worker telemetry and execution performance metrics provided in the data context.
+- Evaluate overall reliability and operational KPIs: Total Executions, Success Rate (%), Failure Rate (%), Pending Executions, and Average/Min/Max Duration.
+- Examine worker-level breakdown to highlight the most frequently executed workers and those with failure patterns or high latency.
+- Analyze error patterns (if any) and classify them by frequency and impact.
+- FORBIDDEN: Do NOT invent, hallucinate, or estimate token usage, cost, or unmeasured metrics since token telemetry is not stored in these records.
+- FORBIDDEN: Do NOT hallucinate execution logs, nonexistent worker runs, fake errors, or fictitious operational records. All metrics must strictly derive from the internal telemetry.
+- FORBIDDEN: Do NOT confuse operational AI execution performance (worker uptime, success rates, duration) with ad campaign business metrics (ROAS, CPA, conversions).
+- If executions are empty or zero, explicitly disclose that no AI worker executions have been recorded in this account yet and provide setup/operational recommendations.`;
 
     default:
       return "";
@@ -653,14 +689,17 @@ module.exports = {
   BATCH_B1_SLUGS,
   BATCH_B2_SLUGS,
   BATCH_B3_SLUGS,
+  BATCH_B4_SLUGS,
   isBatchB1Worker,
   isBatchB2Worker,
   isBatchB3Worker,
+  isBatchB4Worker,
   isTypeBWorker,
   resolveMonthlyPeriod,
   loadBatchB1Data,
   loadBatchB2Data,
   loadBatchB3Data,
+  loadBatchB4Data,
   loadTypeBData,
   executeTypeBWorker,
 };
