@@ -5,6 +5,7 @@ const kpiEvaluationService = require("../services/marketing/kpiEvaluationService
 const marketingAlertService = require("../services/marketing/marketingAlertService");
 const funnelDropOffService = require("../services/marketing/funnelDropOffService");
 const workerKpiService = require("../services/marketing/workerKpiService");
+const seoScraperService = require("../services/seo/seoScraperService");
 const aiService = require("../services/ai/aiService");
 
 const BATCH_B1_SLUGS = Object.freeze({
@@ -27,6 +28,10 @@ const BATCH_B4_SLUGS = Object.freeze({
   AI_WORKER_KPI_TRACKING: "ai-worker-kpi-tracking",
 });
 
+const BATCH_B5_SLUGS = Object.freeze({
+  SEO_AUDIT_CEO_SUMMARY: "seo-audit-ceo-summary",
+});
+
 function isBatchB1Worker(slug) {
   return Object.values(BATCH_B1_SLUGS).includes(slug);
 }
@@ -43,8 +48,12 @@ function isBatchB4Worker(slug) {
   return Object.values(BATCH_B4_SLUGS).includes(slug);
 }
 
+function isBatchB5Worker(slug) {
+  return Object.values(BATCH_B5_SLUGS).includes(slug);
+}
+
 function isTypeBWorker(slug) {
-  return isBatchB1Worker(slug) || isBatchB2Worker(slug) || isBatchB3Worker(slug) || isBatchB4Worker(slug);
+  return isBatchB1Worker(slug) || isBatchB2Worker(slug) || isBatchB3Worker(slug) || isBatchB4Worker(slug) || isBatchB5Worker(slug);
 }
 
 function formatUtcDate(date) {
@@ -515,9 +524,23 @@ async function loadBatchB4Data(workerSlug, userId, options = {}) {
 }
 
 /**
- * Loads user-scoped real marketing data for any Type B worker (Batch B1, B2, B3, or B4).
+ * Loads user-scoped factual SEO audit data for Batch B5 workers (Worker #8 SEO Audit & CEO Summary).
  */
-async function loadTypeBData(slug, userId, options = {}) {
+async function loadBatchB5Data(workerSlug, userId, options = {}, { input } = {}) {
+  if (workerSlug === BATCH_B5_SLUGS.SEO_AUDIT_CEO_SUMMARY) {
+    const targetUrl = input?.targetUrl || input?.url || options?.targetUrl || options?.url;
+    return seoScraperService.scrapeSeoPage(targetUrl, options);
+  }
+  throw Object.assign(new Error(`Worker ${workerSlug} is not a supported Batch B5 worker`), {
+    status: 400,
+    code: "INVALID_BATCH_B5_WORKER",
+  });
+}
+
+/**
+ * Loads user-scoped real marketing data for any Type B worker (Batch B1, B2, B3, B4, or B5).
+ */
+async function loadTypeBData(slug, userId, options = {}, extra = {}) {
   if (isBatchB1Worker(slug)) {
     return loadBatchB1Data(slug, userId, options);
   }
@@ -529,6 +552,9 @@ async function loadTypeBData(slug, userId, options = {}) {
   }
   if (isBatchB4Worker(slug)) {
     return loadBatchB4Data(slug, userId, options);
+  }
+  if (isBatchB5Worker(slug)) {
+    return loadBatchB5Data(slug, userId, options, extra);
   }
   throw Object.assign(new Error(`Worker ${slug} is not a supported Type B worker`), {
     status: 400,
@@ -614,13 +640,31 @@ function getWorkerSpecificPromptInstructions(slug) {
 - FORBIDDEN: Do NOT confuse operational AI execution performance (worker uptime, success rates, duration) with ad campaign business metrics (ROAS, CPA, conversions).
 - If executions are empty or zero, explicitly disclose that no AI worker executions have been recorded in this account yet and provide setup/operational recommendations.`;
 
+    case BATCH_B5_SLUGS.SEO_AUDIT_CEO_SUMMARY:
+      return `WORKER SPECIFIC INSTRUCTIONS (SEO Audit & CEO Summary):
+- Synthesize an executive-level SEO assessment and actionable recommendations strictly based on the verified factual on-page SEO signals provided in the data context.
+- Structure findings around verified on-page evidence: HTTP response status and duration, Title, Meta Description, Canonical URL, Robots Directives, Heading hierarchy (H1-H6), internal/external link structures, and detected structured data types (JSON-LD).
+- Formulate 5–6 concise, high-impact executive recommendations categorized by priority ("high", "medium", "low").
+- In assumptions, explicitly state the technical boundaries and limitations of this audit:
+  * "Audit chỉ phân tích HTML tĩnh của một URL duy nhất."
+  * "Không kiểm tra robots.txt hoặc XML sitemap."
+  * "Không có dữ liệu Google Search Console, Google Analytics hay backlink bên ngoài."
+  * "Không thu thập dữ liệu qua JavaScript rendering."
+- STRICT FORBIDDEN RULES:
+  * NEVER fabricate or invent an SEO score (e.g. "Score: 72/100"), Domain Authority, Page Authority, or composite grade.
+  * NEVER fabricate keyword rankings, search volume, or Google search positions.
+  * NEVER fabricate organic traffic estimates, visitor loss percentages (e.g. "đang mất 30% traffic"), or revenue impact figures.
+  * NEVER claim Google penalties or algorithmic actions ("Google đang phạt trang").
+  * NEVER make unverified causal claims; report only observed on-page facts (e.g. "Phát hiện trang có 2 thẻ H1", "Không tìm thấy meta description").
+  * Do NOT perform or claim multi-page crawling, site-wide audits, or external competitor intelligence.`;
+
     default:
       return "";
   }
 }
 
 /**
- * Executes a Type B worker (Batch B1 or B2) with user-scoped real data injection.
+ * Executes a Type B worker (Batch B1, B2, B3, B4, or B5) with user-scoped real data injection.
  * Preserves the common output schema { summary, recommendations, assumptions }.
  */
 async function executeTypeBWorker({ worker, context, input, agentContext, userId, options = {} }) {
@@ -633,7 +677,7 @@ async function executeTypeBWorker({ worker, context, input, agentContext, userId
   }
 
   // 1. Fetch real marketing data scoped by userId
-  const marketingDataContext = await loadTypeBData(worker.slug, effectiveUserId, options);
+  const marketingDataContext = await loadTypeBData(worker.slug, effectiveUserId, options, { input, context });
 
   // 2. Build bounded context strings
   const contextText = context
@@ -654,6 +698,27 @@ async function executeTypeBWorker({ worker, context, input, agentContext, userId
   const realDataText = JSON.stringify(marketingDataContext, null, 2);
   const workerSpecificText = getWorkerSpecificPromptInstructions(worker.slug);
 
+  const isSeoWorker = isBatchB5Worker(worker.slug);
+  const dataSectionTitle = isSeoWorker
+    ? "VERIFIED ON-PAGE SEO AUDIT DATA (Ground Truth Scraped from Target URL):"
+    : "REAL MARKETING PERFORMANCE DATA (Verified Ground Truth from Internal Marketing Data Layer):";
+
+  const safetyConstraintsText = isSeoWorker
+    ? `CRITICAL SAFETY AND SEMANTIC CONSTRAINTS (SEO AUDIT & CEO SUMMARY):
+1. STRICT FACTUAL GROUNDING: Rely exclusively on the verified on-page data from the scraper. NEVER invent, hallucinate, or fabricate SEO scores, traffic counts, keyword positions, or backlinks.
+2. NO FABRICATED METRICS: Do NOT generate artificial numeric scores (e.g. 75/100). If a signal is missing (e.g. no meta description or missing H1), report it strictly as an observed fact, not an invented penalty.
+3. CAUSAL DISCIPLINE: State observed technical facts directly. Do not assert speculative causal claims ("lack of H1 is dropping traffic by 20%").
+4. BOUNDED SCOPE: This is a single-URL static HTML audit only. In assumptions, clearly disclose that external tools (Search Console, sitemaps, robots.txt, multi-page crawling) were not analyzed.
+5. NO EXTERNAL SIDE EFFECTS: Recommendations are advisory executive guidance only. Never claim live on-site CMS changes or search engine submissions.
+6. IMMUTABLE OUTPUT CONTRACT: Return JSON strictly conforming to the schema with "summary" (string), "recommendations" (array of objects with title, detail, priority enum ["high", "medium", "low"]), and "assumptions" (array of strings). Keep JSON field names unchanged.`
+    : `CRITICAL SAFETY AND SEMANTIC CONSTRAINTS:
+1. STRICT DATA GROUNDING: Use ONLY the metrics provided in the REAL MARKETING PERFORMANCE DATA section above. NEVER invent, hallucinate, or fabricate spend, conversions, revenue, ROAS, or CPA figures.
+2. EMPTY DATA HANDLING: If metrics are zero, null, or missing, explicitly state that tracking or campaign data has not yet been recorded for this period, and recommend proper tracking setup. Do NOT pretend data exists.
+3. DATA SEMANTICS: "conversions" represent aggregate conversion actions and must not be assumed to be exclusively closed e-commerce sales. "revenue" represents purchase conversion value. CPA is cost per tracked conversion.
+4. SCOPE DISCIPLINE: Do not invent unmonitored funnel steps (e.g., checkout/cart steps) or claim external API actions. No causal claims ("X caused Y") without controlled experimentation.
+5. NO EXTERNAL SIDE EFFECTS: Recommendations are advisory planning guidance only. Never claim live execution on Meta Ads, Google Ads, or external advertising platforms.
+6. IMMUTABLE OUTPUT CONTRACT: Return JSON strictly conforming to the schema with "summary" (string), "recommendations" (array of objects with title, detail, priority), and "assumptions" (array of strings). Keep JSON field names and technical enum values unchanged.`;
+
   // 3. Compose AI Prompt with bounded real data and strict safety rules
   const prompt = `SYSTEM: You are an expert marketing strategist and executive analyst. Write every user-facing output in natural Vietnamese.
 WORKER: ${worker.name}
@@ -665,7 +730,7 @@ ${contextText.slice(0, 2500)}
 AGENT RUN CONTEXT:
 ${agentContextText}
 
-REAL MARKETING PERFORMANCE DATA (Verified Ground Truth from Internal Marketing Data Layer):
+${dataSectionTitle}
 ${realDataText}
 
 ${workerSpecificText}
@@ -674,13 +739,7 @@ OBJECTIVE: ${input.objective}
 AUDIENCE: ${input.audience || "Not specified"}
 CONSTRAINTS: ${input.constraints || "Not specified"}
 
-CRITICAL SAFETY AND SEMANTIC CONSTRAINTS:
-1. STRICT DATA GROUNDING: Use ONLY the metrics provided in the REAL MARKETING PERFORMANCE DATA section above. NEVER invent, hallucinate, or fabricate spend, conversions, revenue, ROAS, or CPA figures.
-2. EMPTY DATA HANDLING: If metrics are zero, null, or missing, explicitly state that tracking or campaign data has not yet been recorded for this period, and recommend proper tracking setup. Do NOT pretend data exists.
-3. DATA SEMANTICS: "conversions" represent aggregate conversion actions and must not be assumed to be exclusively closed e-commerce sales. "revenue" represents purchase conversion value. CPA is cost per tracked conversion.
-4. SCOPE DISCIPLINE: Do not invent unmonitored funnel steps (e.g., checkout/cart steps) or claim external API actions. No causal claims ("X caused Y") without controlled experimentation.
-5. NO EXTERNAL SIDE EFFECTS: Recommendations are advisory planning guidance only. Never claim live execution on Meta Ads, Google Ads, or external advertising platforms.
-6. IMMUTABLE OUTPUT CONTRACT: Return JSON strictly conforming to the schema with "summary" (string), "recommendations" (array of objects with title, detail, priority), and "assumptions" (array of strings). Keep JSON field names and technical enum values unchanged.`;
+${safetyConstraintsText}`;
 
   return aiService.generate({ prompt, outputSchema: worker.outputSchema });
 }
@@ -690,16 +749,19 @@ module.exports = {
   BATCH_B2_SLUGS,
   BATCH_B3_SLUGS,
   BATCH_B4_SLUGS,
+  BATCH_B5_SLUGS,
   isBatchB1Worker,
   isBatchB2Worker,
   isBatchB3Worker,
   isBatchB4Worker,
+  isBatchB5Worker,
   isTypeBWorker,
   resolveMonthlyPeriod,
   loadBatchB1Data,
   loadBatchB2Data,
   loadBatchB3Data,
   loadBatchB4Data,
+  loadBatchB5Data,
   loadTypeBData,
   executeTypeBWorker,
 };

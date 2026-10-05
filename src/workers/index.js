@@ -6,6 +6,15 @@ const common = z
     constraints: z.string().max(2000).optional(),
   })
   .strict();
+const seoInput = z
+  .object({
+    objective: z.string().min(3).max(2000),
+    audience: z.string().max(1000).optional(),
+    constraints: z.string().max(2000).optional(),
+    targetUrl: z.string().max(2048).optional(),
+    url: z.string().max(2048).optional(),
+  })
+  .strict();
 const aiService = require("../services/ai/aiService");
 const catalog = require("./catalog/workers");
 const { isTypeBWorker, executeTypeBWorker } = require("./typeBWorkerWiring");
@@ -17,7 +26,7 @@ const slugify = (value) =>
     .replace(/^-|-$/g, "");
 module.exports = catalog.map((worker) => ({
   ...worker,
-  inputSchema: common,
+  inputSchema: worker.slug === "seo-audit-ceo-summary" ? seoInput : common,
   async execute({ context, input, agentContext, userId, options }) {
     if (isTypeBWorker(worker.slug)) {
       return executeTypeBWorker({ worker, context, input, agentContext, userId, options });
