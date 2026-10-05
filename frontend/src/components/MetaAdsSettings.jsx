@@ -107,6 +107,24 @@ export default function MetaAdsSettings({ request }) {
     }
   }
 
+  async function syncInsights() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const data = await request("/meta/sync", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      const count = data?.totalRecords ?? 0;
+      setNotice(`Đã đồng bộ ${count} bản ghi số liệu từ Meta.`);
+    } catch (e) {
+      setError(e.message || "Không thể đồng bộ số liệu Meta.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel metaPanel" aria-labelledby="meta-title">
       <div className="metaPanelHead">
@@ -132,6 +150,12 @@ export default function MetaAdsSettings({ request }) {
               {pages.map((page) => <option value={page.id} key={page.id}>{page.name}</option>)}
             </select></label>
             <button className="agentSecondary" disabled={busy} onClick={() => loadConnection().catch((e) => setError(e.message))}><RefreshCw size={15}/> Tải lại tài khoản và Page</button>
+            {connection.adAccount?.id && (
+              <button className="agentSecondary" disabled={busy} onClick={syncInsights}>
+                {busy ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
+                Đồng bộ số liệu chiến dịch
+              </button>
+            )}
             <button className="agentSecondary" disabled={busy} onClick={disconnect}><Unplug size={15}/> Ngắt kết nối</button>
           </div>
           <p className="muted metaScopeNote">Quyền đã cấp: {(connection.scopes || []).join(", ")}. Campaign được tạo ở trạng thái PAUSED.</p>

@@ -257,6 +257,35 @@ router.post("/campaigns/:id/resume", async (req, res, next) => {
   }
 });
 
+router.post("/sync", async (req, res, next) => {
+  try {
+    const input = z
+      .object({
+        since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        datePreset: z.string().max(50).optional(),
+        level: z.enum(["account", "campaign", "adset", "ad"]).optional(),
+      })
+      .strict()
+      .optional()
+      .default({});
+    const parsed = input.parse(req.body || {});
+    const data = await adsService.syncInsights(req.user.sub, parsed);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/snapshots", async (req, res, next) => {
+  try {
+    const data = await adsService.getStoredSnapshots(req.user.sub, req.query);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.delete("/", async (req, res, next) => {
   try {
     res.json({

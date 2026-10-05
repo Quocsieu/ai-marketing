@@ -12,6 +12,7 @@ const {
   buildCampaignSpecification,
   campaignSpecificationSchema,
 } = require("./campaignSpecification");
+const { normalizeMetaInsight } = require("./metaInsightsNormalizer");
 
 function error(status, code, message) {
   return Object.assign(new Error(message), { status, code });
@@ -753,6 +754,187 @@ async function disconnect(userId) {
   return { disconnected: true };
 }
 
+async function syncInsights(userId, options = {}) {
+  if (!userId) {
+    throw error(400, "USER_ID_REQUIRED", "User ID is required.");
+  }
+
+  const { since, until, datePreset, level = "campaign", provider } = options;
+  if (since && until && since > until) {
+    throw error(400, "INVALID_DATE_RANGE", "since date cannot be after until date.");
+  }
+
+  const { connection, accessToken } = await getConnection(userId, {
+    requireAccount: true,
+  });
+
+  const activeProvider = provider || metaAdsProvider;
+  const startedAt = new Date();
+  const startTime = Date.now();
+
+  let rawRows;
+  try {
+    rawRows = await activeProvider.getInsights({
+      accessToken,
+      adAccountId: connection.adAccountId,
+      level,
+      since,
+      until,
+      datePreset: datePreset || (since ? undefined : "last_30d"),
+    });
+  } catch (err) {
+    const durationMs = Date.now() - startTime;
+    await prisma.integrationSyncLog.create({
+      data: {
+        userId,
+        provider: "meta",
+        syncType: "METRICS",
+        status: "FAILED",
+        errorMessage: err.message || "Failed to fetch Meta insights",
+        recordsProcessed: 0,
+        startedAt,
+        completedAt: new Date(),
+        durationMs,
+      },
+    }).catch(() => {});
+
+    await prisma.integrationSyncState.upsert({
+      where: { userId_provider: { userId, provider: "meta" } },
+      create: {
+        userId,
+        provider: "meta",
+        syncStatus: "FAILED",
+        errorMessage: err.message || "Failed to fetch Meta insights",
+        lastSyncAt: new Date(),
+        recordsProcessed: 0,
+      },
+      update: {
+        syncStatus: "FAILED",
+        errorMessage: err.message || "Failed to fetch Meta insights",
+        lastSyncAt: new Date(),
+      },
+    }).catch(() => {});
+
+    throw err;
+  }
+
+  const snapshots = [];
+  for (const row of rawRows || []) {
+    const normalized = normalizeMetaInsight(row, { userId });
+    if (normalized) {
+      snapshots.push(normalized);
+    }
+  }
+
+  const savedSnapshots = [];
+  for (const item of snapshots) {
+    const saved = await prisma.marketingMetricSnapshot.upsert({
+      where: {
+        userId_channel_externalId_objectType_date: {
+          userId: item.userId,
+          channel: item.channel,
+          externalId: item.externalId,
+          objectType: item.objectType,
+          date: item.date,
+        },
+      },
+      create: {
+        userId: item.userId,
+        channel: item.channel,
+        externalId: item.externalId,
+        objectType: item.objectType,
+        date: item.date,
+        spend: item.spend,
+        impressions: item.impressions,
+        clicks: item.clicks,
+        ctr: item.ctr,
+        cpc: item.cpc,
+        conversions: item.conversions,
+        revenue: item.revenue,
+        roas: item.roas,
+        cpa: item.cpa,
+        rawMetrics: item.rawMetrics,
+      },
+      update: {
+        spend: item.spend,
+        impressions: item.impressions,
+        clicks: item.clicks,
+        ctr: item.ctr,
+        cpc: item.cpc,
+        conversions: item.conversions,
+        revenue: item.revenue,
+        roas: item.roas,
+        cpa: item.cpa,
+        rawMetrics: item.rawMetrics,
+      },
+    });
+    savedSnapshots.push(saved);
+  }
+
+  const durationMs = Date.now() - startTime;
+  const completedAt = new Date();
+
+  await prisma.integrationSyncState.upsert({
+    where: { userId_provider: { userId, provider: "meta" } },
+    create: {
+      userId,
+      provider: "meta",
+      syncStatus: "SUCCESS",
+      lastSyncAt: completedAt,
+      recordsProcessed: savedSnapshots.length,
+      errorMessage: null,
+    },
+    update: {
+      syncStatus: "SUCCESS",
+      lastSyncAt: completedAt,
+      recordsProcessed: savedSnapshots.length,
+      errorMessage: null,
+    },
+  });
+
+  await prisma.integrationSyncLog.create({
+    data: {
+      userId,
+      provider: "meta",
+      syncType: "METRICS",
+      status: "SUCCESS",
+      recordsProcessed: savedSnapshots.length,
+      durationMs,
+      startedAt,
+      completedAt,
+    },
+  });
+
+  return {
+    success: true,
+    totalRecords: savedSnapshots.length,
+    snapshots: savedSnapshots,
+    durationMs,
+  };
+}
+
+async function getStoredSnapshots(userId, options = {}) {
+  const where = {
+    userId,
+    channel: options.channel || "meta",
+  };
+  if (options.externalId) {
+    where.externalId = options.externalId;
+  }
+  if (options.objectType) {
+    where.objectType = options.objectType;
+  }
+  if (options.since || options.until) {
+    where.date = {};
+    if (options.since) where.date.gte = new Date(options.since);
+    if (options.until) where.date.lte = new Date(options.until);
+  }
+  return prisma.marketingMetricSnapshot.findMany({
+    where,
+    orderBy: { date: "desc" },
+  });
+}
+
 module.exports = {
   status,
   getAdAccounts,
@@ -767,4 +949,6 @@ module.exports = {
   changeCampaignStatus,
   listCampaigns,
   disconnect,
+  syncInsights,
+  getStoredSnapshots,
 };

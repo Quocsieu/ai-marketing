@@ -583,6 +583,101 @@ class MetaAdsProvider {
       status: "ACTIVE",
     });
   }
+
+  async getInsights({
+    accessToken,
+    adAccountId,
+    campaignId,
+    datePreset,
+    since,
+    until,
+    level = "campaign",
+    timeIncrement = "1",
+    fields,
+  } = {}) {
+    if (!accessToken) {
+      throw Object.assign(new Error("Meta access token is required."), {
+        status: 400,
+        code: "META_ACCESS_TOKEN_REQUIRED",
+      });
+    }
+
+    if (!adAccountId && !campaignId) {
+      throw Object.assign(new Error("Either adAccountId or campaignId must be provided."), {
+        status: 400,
+        code: "META_INVALID_TARGET",
+      });
+    }
+
+    const validLevels = ["account", "campaign", "adset", "ad"];
+    if (level && !validLevels.includes(level)) {
+      throw Object.assign(new Error(`Invalid level: ${level}. Must be one of ${validLevels.join(", ")}`), {
+        status: 400,
+        code: "META_INVALID_LEVEL",
+      });
+    }
+
+    let targetPath;
+    if (campaignId) {
+      const normalizedCampaignId = normalizeObjectId(campaignId);
+      if (!normalizedCampaignId) {
+        throw Object.assign(new Error("Meta campaign id is invalid."), {
+          status: 400,
+          code: "META_INVALID_CAMPAIGN_ID",
+        });
+      }
+      targetPath = `${normalizedCampaignId}/insights`;
+    } else {
+      const normalizedAccountId = normalizeAdAccountId(adAccountId);
+      if (!normalizedAccountId) {
+        throw Object.assign(new Error("Selected Meta ad account is invalid."), {
+          status: 400,
+          code: "META_INVALID_AD_ACCOUNT",
+        });
+      }
+      targetPath = `act_${normalizedAccountId}/insights`;
+    }
+
+    const defaultFields =
+      "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,account_id,spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,purchase_roas,cost_per_action_type,date_start,date_stop";
+
+    const query = {
+      fields: fields || defaultFields,
+      level: level || "campaign",
+      limit: 100,
+    };
+
+    if (datePreset) {
+      query.date_preset = datePreset;
+    } else if (since && until) {
+      query.time_range = JSON.stringify({ since, until });
+    } else if (since) {
+      query.time_range = JSON.stringify({ since, until: since });
+    }
+
+    if (timeIncrement !== undefined && timeIncrement !== null) {
+      query.time_increment = String(timeIncrement);
+    }
+
+    const results = [];
+    let after;
+    for (let page = 0; page < 50; page += 1) {
+      const pageQuery = { ...query, ...(after ? { after } : {}) };
+      const response = await this.request(targetPath, {
+        accessToken,
+        query: pageQuery,
+      });
+
+      if (Array.isArray(response.data)) {
+        results.push(...response.data);
+      }
+
+      after = response.paging?.cursors?.after;
+      if (!response.paging?.next || !after) break;
+    }
+
+    return results;
+  }
 }
 
 module.exports = { MetaAdsProvider, normalizeAdAccountId, normalizeObjectId };
