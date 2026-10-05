@@ -26,7 +26,11 @@ const slugify = (value) =>
     .replace(/^-|-$/g, "");
 module.exports = catalog.map((worker) => ({
   ...worker,
-  inputSchema: worker.slug === "seo-audit-ceo-summary" ? seoInput : common,
+  inputSchema:
+    worker.slug === "seo-audit-ceo-summary" ||
+    worker.slug === "advanced-on-page-audit"
+      ? seoInput
+      : common,
   async execute({ context, input, agentContext, userId, options }) {
     if (isTypeBWorker(worker.slug)) {
       return executeTypeBWorker({ worker, context, input, agentContext, userId, options });

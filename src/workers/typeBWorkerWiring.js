@@ -30,6 +30,7 @@ const BATCH_B4_SLUGS = Object.freeze({
 
 const BATCH_B5_SLUGS = Object.freeze({
   SEO_AUDIT_CEO_SUMMARY: "seo-audit-ceo-summary",
+  ADVANCED_ON_PAGE_AUDIT: "advanced-on-page-audit",
 });
 
 function isBatchB1Worker(slug) {
@@ -527,7 +528,10 @@ async function loadBatchB4Data(workerSlug, userId, options = {}) {
  * Loads user-scoped factual SEO audit data for Batch B5 workers (Worker #8 SEO Audit & CEO Summary).
  */
 async function loadBatchB5Data(workerSlug, userId, options = {}, { input } = {}) {
-  if (workerSlug === BATCH_B5_SLUGS.SEO_AUDIT_CEO_SUMMARY) {
+  if (
+    workerSlug === BATCH_B5_SLUGS.SEO_AUDIT_CEO_SUMMARY ||
+    workerSlug === BATCH_B5_SLUGS.ADVANCED_ON_PAGE_AUDIT
+  ) {
     const targetUrl = input?.targetUrl || input?.url || options?.targetUrl || options?.url;
     return seoScraperService.scrapeSeoPage(targetUrl, options);
   }
@@ -656,6 +660,34 @@ function getWorkerSpecificPromptInstructions(slug) {
   * NEVER fabricate organic traffic estimates, visitor loss percentages (e.g. "đang mất 30% traffic"), or revenue impact figures.
   * NEVER claim Google penalties or algorithmic actions ("Google đang phạt trang").
   * NEVER make unverified causal claims; report only observed on-page facts (e.g. "Phát hiện trang có 2 thẻ H1", "Không tìm thấy meta description").
+  * Do NOT perform or claim multi-page crawling, site-wide audits, or external competitor intelligence.`;
+
+    case BATCH_B5_SLUGS.ADVANCED_ON_PAGE_AUDIT:
+      return `WORKER SPECIFIC INSTRUCTIONS (Advanced On-page Audit):
+- Conduct an exhaustive technical on-page SEO audit based strictly on the verified factual signals provided in the data context.
+- Analyze the critical technical on-page elements:
+  * HTTP status, response latency, payload byte size, and redirect chains.
+  * Page title (length, presence, clarity) and meta description (length, presence, messaging).
+  * Canonical link tag and canonical match verification.
+  * Meta robots directives (indexability, noindex, nofollow).
+  * Complete heading hierarchy (H1 through H6 counts, structure, and text distribution; flag missing H1 or multiple H1s).
+  * Internal vs external link structure (link counts, link distribution, and anchor text quality).
+  * Structured data schema (JSON-LD @type presence and validity).
+  * Technical diagnostics and error notices.
+- Categorize technical recommendations with explicit priorities: "high" (critical technical barriers like noindex or missing canonical), "medium" (heading hierarchy or missing description), "low" (minor enhancements).
+- In assumptions, explicitly state the technical boundaries and limitations of this audit:
+  * "Audit chỉ phân tích HTML tĩnh của một URL duy nhất."
+  * "Không kiểm tra robots.txt hoặc XML sitemap."
+  * "Không có dữ liệu Google Search Console, Google Analytics hay backlink bên ngoài."
+  * "Không thu thập dữ liệu qua JavaScript rendering."
+- STRICT FORBIDDEN RULES:
+  * NEVER fabricate or invent an SEO score (e.g. "Score: 72/100"), Domain Authority, Page Authority, or composite grade.
+  * NEVER fabricate keyword rankings, search volume, or Google search positions.
+  * NEVER fabricate organic traffic estimates, visitor loss percentages, or revenue impact figures.
+  * NEVER claim Google penalties or algorithmic actions ("Google đang phạt trang").
+  * NEVER make unverified causal claims; report only observed on-page facts (e.g. "Phát hiện trang có 2 thẻ H1", "Không tìm thấy meta description").
+  * Do NOT claim Core Web Vitals (LCP, CLS, INP) lab or field measurements since performance lab metrics were not collected.
+  * Do NOT claim conversion rates, bounce rates, heatmaps, or user interaction metrics.
   * Do NOT perform or claim multi-page crawling, site-wide audits, or external competitor intelligence.`;
 
     default:

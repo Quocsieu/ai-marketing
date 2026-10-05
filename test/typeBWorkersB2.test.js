@@ -13,6 +13,7 @@ const {
   BATCH_B2_SLUGS,
   isBatchB1Worker,
   isBatchB2Worker,
+  isBatchB5Worker,
   isTypeBWorker,
   loadBatchB2Data,
   executeTypeBWorker,
@@ -536,16 +537,18 @@ describe("Phase 2.7+ Batch B2: Type B Worker Wiring Suite", () => {
   });
 
   // ========================================================
-  // 6. Complete Catalog Routing Audit: 9 Type B, 62 Non-Type B
+  // 6. Complete Catalog Routing Audit: 10 Type B, 61 Non-Type B
   // ========================================================
-  test("8. Complete Catalog Routing Audit: exactly 9 Type B workers (3 B1 + 3 B2 + 1 B3 + 1 B4 + 1 B5) and 62 generic workers", () => {
+  test("8. Complete Catalog Routing Audit: exactly 10 Type B workers (3 B1 + 3 B2 + 1 B3 + 1 B4 + 2 B5) and 61 generic workers", () => {
     assert.equal(workers.length, 71, "Catalog must have exactly 71 workers");
 
     const expectedB1 = ["analytics-ceo-dashboard", "cac-roas-funnel-analytics", "monthly-ceo-strategy-report"];
     const expectedB2 = ["marketing-alert", "smart-budget-allocation", "advanced-budget-planner"];
+    const expectedB5 = ["seo-audit-ceo-summary", "advanced-on-page-audit"];
 
     const actualB1 = workers.filter((w) => isBatchB1Worker(w.slug)).map((w) => w.slug);
     const actualB2 = workers.filter((w) => isBatchB2Worker(w.slug)).map((w) => w.slug);
+    const actualB5 = workers.filter((w) => isBatchB5Worker(w.slug)).map((w) => w.slug);
     const actualTypeB = workers.filter((w) => isTypeBWorker(w.slug)).map((w) => w.slug);
     const nonTypeB = workers.filter((w) => !isTypeBWorker(w.slug)).map((w) => w.slug);
 
@@ -555,11 +558,14 @@ describe("Phase 2.7+ Batch B2: Type B Worker Wiring Suite", () => {
     assert.equal(actualB2.length, 3, "Exactly 3 B2 workers");
     assert.deepEqual(actualB2.sort(), expectedB2.sort());
 
-    assert.equal(actualTypeB.length, 9, "Exactly 9 Type B workers in total");
-    assert.equal(nonTypeB.length, 62, "Exactly 62 remaining workers on standard generic path");
+    assert.equal(actualB5.length, 2, "Exactly 2 B5 workers");
+    assert.deepEqual(actualB5.sort(), expectedB5.sort());
 
-    // Unexpected routed must be 0 (excluding known B1, B2, B3 funnel-drop-off-analyst, B4 ai-worker-kpi-tracking, and B5 seo-audit-ceo-summary)
-    const unexpectedRouted = actualTypeB.filter((slug) => !expectedB1.includes(slug) && !expectedB2.includes(slug) && slug !== "funnel-drop-off-analyst" && slug !== "ai-worker-kpi-tracking" && slug !== "seo-audit-ceo-summary");
+    assert.equal(actualTypeB.length, 10, "Exactly 10 Type B workers in total");
+    assert.equal(nonTypeB.length, 61, "Exactly 61 remaining workers on standard generic path");
+
+    // Unexpected routed must be 0 (excluding known B1, B2, B3 funnel-drop-off-analyst, B4 ai-worker-kpi-tracking, and B5 expectedB5)
+    const unexpectedRouted = actualTypeB.filter((slug) => !expectedB1.includes(slug) && !expectedB2.includes(slug) && slug !== "funnel-drop-off-analyst" && slug !== "ai-worker-kpi-tracking" && !expectedB5.includes(slug));
     assert.equal(unexpectedRouted.length, 0, "Zero unexpected workers routed to Type B");
   });
 
